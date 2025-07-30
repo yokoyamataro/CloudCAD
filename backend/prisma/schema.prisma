@@ -1,0 +1,222 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// User管理
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("user") // admin, surveyor, user
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // リレーション
+  projects      ProjectUser[]
+  drawings      Drawing[]
+  surveyPoints  SurveyPoint[]
+  modifications DrawingElement[]
+}
+
+// プロジェクト（測量案件・地籍調査案件）
+model Project {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  surveyArea        String?  // 調査地区
+  coordinateSystem  String   @default("JGD2000") // 座標系
+  units             String   @default("m") // 単位
+  boundingBox       String?  // 範囲（JSON）
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // リレーション
+  users           ProjectUser[]
+  drawings        Drawing[]
+  layers          Layer[]
+  surveyPoints    SurveyPoint[]
+  boundaryLines   BoundaryLine[]
+  landParcels     LandParcel[]
+}
+
+// プロジェクト参加者
+model ProjectUser {
+  id        String @id @default(cuid())
+  userId    String
+  projectId String
+  role      String @default("viewer") // owner, editor, viewer
+  
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, projectId])
+}
+
+// レイヤー管理
+model Layer {
+  id          String   @id @default(cuid())
+  name        String
+  color       String   @default("#000000")
+  lineType    String   @default("CONTINUOUS")
+  lineWidth   Float    @default(1.0)
+  visible     Boolean  @default(true)
+  locked      Boolean  @default(false)
+  projectId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  elements DrawingElement[]
+  
+  @@unique([projectId, name])
+}
+
+// 図面データ
+model Drawing {
+  id            String   @id @default(cuid())
+  name          String
+  version       Int      @default(1)
+  sxfData       String?  // SXFファイル内容（JSON化）
+  metadata      String?  // メタデータ（JSON）
+  projectId     String
+  authorId      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author  User    @relation(fields: [authorId], references: [id])
+  
+  elements DrawingElement[]
+}
+
+// 描画要素（汎用）
+model DrawingElement {
+  id            String   @id @default(cuid())
+  type          String   // LINE, POINT, TEXT, POLYGON, CIRCLE, ARC
+  geometry      String   // PostGIS Geometry（WKT形式またはJSON）
+  properties    String?  // 属性データ（JSON）
+  style         String?  // スタイル情報（JSON）
+  layerId       String?
+  drawingId     String?
+  visible       Boolean  @default(true)
+  locked        Boolean  @default(false)
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  layer     Layer?   @relation(fields: [layerId], references: [id], onDelete: SetNull)
+  drawing   Drawing? @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  creator   User?    @relation(fields: [createdBy], references: [id])
+  
+  @@index([type])
+  @@index([layerId])
+  @@index([drawingId])
+}
+
+// 測量点（地籍調査特有）
+model SurveyPoint {
+  id              String   @id @default(cuid())
+  pointNumber     String   // 点番号
+  pointType       String   // 基準点, 補助点, 境界点, 標定点など
+  coordinates     String   // WKT形式の座標
+  elevation       Float?   // 標高
+  accuracy        String?  // 精度等級
+  measureMethod   String?  // 測量方法
+  measureDate     DateTime?
+  surveyorName    String?
+  remarks         String?
+  projectId       String
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator   User?   @relation(fields: [createdBy], references: [id])
+  
+  // 測量点間の関係
+  fromLines BoundaryLine[] @relation("FromPoint")
+  toLines   BoundaryLine[] @relation("ToPoint")
+  
+  @@unique([projectId, pointNumber])
+}
+
+// 境界線（筆界線等）
+model BoundaryLine {
+  id              String   @id @default(cuid())
+  lineNumber      String?  // 線番号
+  lineType        String   // 筆界, 所有権界, 行政界など
+  geometry        String   // WKT形式のLineString
+  length          Float?   // 距離
+  azimuth         Float?   // 方位角
+  measureMethod   String?  // 測量方法
+  certainty       String   @default("確定") // 確定, 推定, 不明
+  fromPointId     String?
+  toPointId       String?
+  projectId       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromPoint   SurveyPoint? @relation("FromPoint", fields: [fromPointId], references: [id])
+  toPoint     SurveyPoint? @relation("ToPoint", fields: [toPointId], references: [id])
+}
+
+// 土地区画（筆等）
+model LandParcel {
+  id              String   @id @default(cuid())
+  parcelNumber    String   // 地番
+  address         String?  // 所在地
+  area            Float?   // 面積（㎡）
+  landUse         String?  // 地目
+  owner           String?  // 所有者
+  geometry        String?  // WKT形式のPolygon
+  registrationDate DateTime?
+  remarks         String?
+  projectId       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@unique([projectId, parcelNumber])
+}
+
+// リアルタイム共同編集用のセッション管理
+model EditSession {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  socketId  String   @unique
+  cursor    String?  // カーソル位置（JSON）
+  selection String?  // 選択要素（JSON）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([projectId])
+}
+
+// 変更履歴（リアルタイム同期用）
+model ChangeHistory {
+  id          String   @id @default(cuid())
+  type        String   // CREATE, UPDATE, DELETE
+  objectType  String   // DrawingElement, SurveyPoint, BoundaryLine
+  objectId    String
+  oldData     String?  // 変更前データ（JSON）
+  newData     String?  // 変更後データ（JSON）
+  userId      String
+  projectId   String
+  timestamp   DateTime @default(now())
+  
+  @@index([projectId, timestamp])
+  @@index([objectType, objectId])
+}
