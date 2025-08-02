@@ -16,7 +16,10 @@ import {
   Menu,
   Checkbox,
   Modal,
-  Textarea
+  Textarea,
+  Tabs,
+  Table,
+  TextInput
 } from '@mantine/core';
 import {
   IconPointer,
@@ -43,7 +46,12 @@ import {
   IconLocation,
   IconMessage,
   IconPlus,
-  IconMinus
+  IconMinus,
+  IconSettings,
+  IconNumbers,
+  IconMapPins,
+  IconEdit,
+  IconTrash
 } from '@tabler/icons-react';
 import { P21Parser } from '../../modules/sxf/P21Parser';
 import { P21Exporter } from '../../modules/sxf/P21Exporter';
@@ -64,6 +72,7 @@ interface CADEditorProps {
   onClose: () => void;
   initialData?: CADElement[];
   onSave?: (data: CADData) => void;
+  initialTab?: 'cad' | 'coordinate' | 'lot';
 }
 
 interface CADData {
@@ -89,7 +98,8 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   projectId,
   onClose,
   initialData = [],
-  onSave
+  onSave,
+  initialTab = 'cad'
 }) => {
   console.log('CADEditor コンポーネントが読み込まれました:', { projectId });
   // 用紙サイズ定義
@@ -131,6 +141,104 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     }
   ]);
   const [currentPageId, setCurrentPageId] = useState<string>('page-1');
+  
+  // タブ管理
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+  
+  // 座標データ管理
+  const [coordinateData, setCoordinateData] = useState([
+    {
+      id: '1',
+      pointName: 'BP-1',
+      type: 'benchmark',
+      x: 45000.123,
+      y: -12000.456,
+      z: 12.345,
+      accuracy: '±2mm',
+      description: '基準点1号',
+      surveyor: '田中測量士',
+      surveyDate: '2024-01-15',
+      coordinateSystem: 'JGD2011'
+    },
+    {
+      id: '2', 
+      pointName: 'CP-1',
+      type: 'control_point',
+      x: 45100.789,
+      y: -12050.234,
+      z: 11.987,
+      accuracy: '±5mm',
+      description: '制御点1号',
+      surveyor: '佐藤測量士',
+      surveyDate: '2024-01-16',
+      coordinateSystem: 'JGD2011'
+    },
+    {
+      id: '3',
+      pointName: 'BP-2', 
+      type: 'boundary_point',
+      x: 45200.345,
+      y: -12100.678,
+      z: 13.123,
+      accuracy: '±3mm',
+      description: '境界点2号',
+      surveyor: '鈴木測量士',
+      surveyDate: '2024-01-17',
+      coordinateSystem: 'JGD2011'
+    }
+  ]);
+  
+  const [showCoordinateModal, setShowCoordinateModal] = useState(false);
+  const [editingCoordinate, setEditingCoordinate] = useState<any>(null);
+  
+  // 座標管理関数
+  const handleAddCoordinate = () => {
+    setEditingCoordinate(null);
+    setShowCoordinateModal(true);
+  };
+  
+  const handleEditCoordinate = (coordinate: any) => {
+    setEditingCoordinate(coordinate);
+    setShowCoordinateModal(true);
+  };
+  
+  const handleDeleteCoordinate = (id: string) => {
+    setCoordinateData(prev => prev.filter(coord => coord.id !== id));
+  };
+  
+  const handleSaveCoordinate = (data: any) => {
+    if (editingCoordinate) {
+      setCoordinateData(prev => prev.map(coord => 
+        coord.id === editingCoordinate.id ? { ...coord, ...data } : coord
+      ));
+    } else {
+      const newCoordinate = {
+        id: Date.now().toString(),
+        ...data,
+        surveyDate: new Date().toISOString().split('T')[0]
+      };
+      setCoordinateData(prev => [...prev, newCoordinate]);
+    }
+    setShowCoordinateModal(false);
+  };
+  
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'benchmark': return '基準点';
+      case 'control_point': return '制御点';
+      case 'boundary_point': return '境界点';
+      default: return type;
+    }
+  };
+  
+  const getTypeBadgeColor = (type: string) => {
+    switch (type) {
+      case 'benchmark': return 'blue';
+      case 'control_point': return 'green';
+      case 'boundary_point': return 'orange';
+      default: return 'gray';
+    }
+  };
   const [multiPageLayout] = useState<MultiPageLayout>({
     columns: 2,
     rows: 2,
@@ -2668,41 +2776,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       <Paper shadow="sm" p="sm" withBorder>
         <Group justify="space-between">
           <Group>
-            {/* ページ管理（デバッグ用：最前面に配置） */}
-            <Group gap="xs" style={{ backgroundColor: '#fff3cd', padding: '4px', borderRadius: '4px' }}>
-              <Text size="xs" c="orange" fw={600}>ページ:</Text>
-              <Tooltip label="新しいページを追加">
-                <ActionIcon variant="filled" color="green" onClick={addNewPage}>
-                  <IconPlus size={16} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="現在のページを削除">
-                <ActionIcon 
-                  variant="filled"
-                  color="red"
-                  onClick={() => deletePage(currentPageId)}
-                  disabled={pages.length <= 1}
-                >
-                  <IconMinus size={16} />
-                </ActionIcon>
-              </Tooltip>
-              <Select
-                data={pages.map(page => ({ value: page.id, label: page.name }))}
-                value={currentPageId}
-                onChange={(value) => value && setCurrentPageId(value)}
-                placeholder="ページ選択"
-                w={100}
-                size="xs"
-                styles={{
-                  dropdown: { zIndex: 1001 }
-                }}
-              />
-              <Text size="xs" c="dimmed">
-                {pages.findIndex(p => p.id === currentPageId) + 1} / {pages.length}
-              </Text>
-            </Group>
-            
-            <Divider orientation="vertical" />
             
             {/* 選択ツール */}
             <Group gap="xs">
@@ -3083,8 +3156,56 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         </Group>
       </Paper>
       
-      {/* メインキャンバス */}
-      <Box style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      {/* タブ構造 */}
+      <Tabs value={activeTab} onChange={setActiveTab} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <Tabs.List>
+          <Tabs.Tab value="cad" leftSection={<IconSettings size={16} />}>
+            CAD編集
+          </Tabs.Tab>
+          <Tabs.Tab value="coordinate" leftSection={<IconMapPins size={16} />}>
+            座標編集
+          </Tabs.Tab>
+          <Tabs.Tab value="lot" leftSection={<IconNumbers size={16} />}>
+            地番編集
+          </Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="cad" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          {/* ページ管理 */}
+          <Paper shadow="sm" p="sm" mb="sm" withBorder>
+            <Group gap="xs">
+              <Text size="sm" fw={600}>ページ管理:</Text>
+              <Tooltip label="新しいページを追加">
+                <ActionIcon variant="filled" color="green" onClick={addNewPage}>
+                  <IconPlus size={16} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="現在のページを削除">
+                <ActionIcon 
+                  variant="filled"
+                  color="red"
+                  onClick={() => deletePage(currentPageId)}
+                  disabled={pages.length <= 1}
+                >
+                  <IconMinus size={16} />
+                </ActionIcon>
+              </Tooltip>
+              <Select
+                data={pages.map(page => ({ value: page.id, label: page.name }))}
+                value={currentPageId}
+                onChange={(value) => value && setCurrentPageId(value)}
+                placeholder="ページ選択"
+                w={150}
+                size="xs"
+              />
+              <Text size="xs" c="dimmed">
+                {pages.findIndex(p => p.id === currentPageId) + 1} / {pages.length}
+              </Text>
+            </Group>
+          </Paper>
+          
+          {/* CAD編集メインキャンバス */}
+          <Box style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <canvas
           ref={canvasRef}
           style={{
@@ -3528,6 +3649,281 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           </Group>
         </Stack>
       </Modal>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="coordinate" style={{ flex: 1, padding: '20px' }}>
+          {/* 座標編集パネル */}
+          <Stack>
+            <Group justify="space-between">
+              <Text size="lg" fw={600}>座標管理</Text>
+              <Button leftSection={<IconPlus size={16} />} onClick={handleAddCoordinate}>
+                座標点追加
+              </Button>
+            </Group>
+            
+            <Paper withBorder p="md">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <Text size="sm" c="dimmed">測量基準点・境界点の座標データを管理します</Text>
+                  <Group>
+                    <Button variant="light" size="sm">CSV インポート</Button>
+                    <Button variant="light" size="sm">CSV エクスポート</Button>
+                    <Button variant="light" size="sm">座標変換</Button>
+                  </Group>
+                </Group>
+                
+                {/* 座標一覧テーブル */}
+                <Table striped highlightOnHover withTableBorder>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>点名</Table.Th>
+                      <Table.Th>種類</Table.Th>
+                      <Table.Th>X座標 (m)</Table.Th>
+                      <Table.Th>Y座標 (m)</Table.Th>
+                      <Table.Th>標高 (m)</Table.Th>
+                      <Table.Th>精度</Table.Th>
+                      <Table.Th>測量者</Table.Th>
+                      <Table.Th>測量日</Table.Th>
+                      <Table.Th>操作</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {coordinateData.map((coord) => (
+                      <Table.Tr key={coord.id}>
+                        <Table.Td>
+                          <Text fw={600}>{coord.pointName}</Text>
+                          <Text size="xs" c="dimmed">{coord.description}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge color={getTypeBadgeColor(coord.type)} variant="light">
+                            {getTypeLabel(coord.type)}
+                          </Badge>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" style={{ fontFamily: 'monospace' }}>
+                            {coord.x?.toFixed(3)}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" style={{ fontFamily: 'monospace' }}>
+                            {coord.y?.toFixed(3)}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" style={{ fontFamily: 'monospace' }}>
+                            {coord.z?.toFixed(3)}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{coord.accuracy}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{coord.surveyor}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{coord.surveyDate}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs">
+                            <ActionIcon
+                              variant="light"
+                              color="blue"
+                              onClick={() => handleEditCoordinate(coord)}
+                            >
+                              <IconEdit size={16} />
+                            </ActionIcon>
+                            <ActionIcon
+                              variant="light"
+                              color="red"
+                              onClick={() => handleDeleteCoordinate(coord.id)}
+                            >
+                              <IconTrash size={16} />
+                            </ActionIcon>
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+                
+                <Group justify="center">
+                  <Text size="sm" c="dimmed">
+                    {coordinateData.length} 件の座標データが登録されています
+                  </Text>
+                </Group>
+              </Stack>
+            </Paper>
+          </Stack>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="lot" style={{ flex: 1, padding: '20px' }}>
+          {/* 地番編集パネル */}
+          <Stack>
+            <Group justify="space-between">
+              <Text size="lg" fw={600}>地番管理</Text>
+              <Button leftSection={<IconPlus size={16} />}>地番追加</Button>
+            </Group>
+            
+            <Paper withBorder p="md">
+              <Stack gap="md">
+                <Text size="sm" c="dimmed">土地の地番情報を管理します</Text>
+                
+                {/* 地番一覧 */}
+                <Box style={{ minHeight: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Stack align="center" gap="md">
+                    <IconNumbers size={48} color="gray" />
+                    <Text c="dimmed">地番データはここに表示されます</Text>
+                    <Text size="sm" c="dimmed">地番、地目、面積などの情報を追加・編集できます</Text>
+                  </Stack>
+                </Box>
+                
+                <Group>
+                  <Button variant="light">地番台帳インポート</Button>
+                  <Button variant="light">地番台帳エクスポート</Button>
+                  <Button variant="light">面積計算</Button>
+                </Group>
+              </Stack>
+            </Paper>
+          </Stack>
+        </Tabs.Panel>
+      </Tabs>
+      
+      {/* 座標追加・編集モーダル */}
+      <Modal
+        opened={showCoordinateModal}
+        onClose={() => setShowCoordinateModal(false)}
+        title={editingCoordinate ? "座標点編集" : "座標点追加"}
+        size="lg"
+      >
+        <CoordinateForm
+          coordinate={editingCoordinate}
+          onSave={handleSaveCoordinate}
+          onCancel={() => setShowCoordinateModal(false)}
+        />
+      </Modal>
     </Box>
+  );
+};
+
+// 座標入力フォームコンポーネント
+const CoordinateForm: React.FC<{
+  coordinate?: any;
+  onSave: (data: any) => void;
+  onCancel: () => void;
+}> = ({ coordinate, onSave, onCancel }) => {
+  const [formData, setFormData] = useState({
+    pointName: coordinate?.pointName || '',
+    type: coordinate?.type || 'boundary_point',
+    x: coordinate?.x?.toString() || '',
+    y: coordinate?.y?.toString() || '',
+    z: coordinate?.z?.toString() || '',
+    accuracy: coordinate?.accuracy || '±5mm',
+    description: coordinate?.description || '',
+    surveyor: coordinate?.surveyor || '',
+    coordinateSystem: coordinate?.coordinateSystem || 'JGD2011'
+  });
+  
+  const handleSubmit = () => {
+    const data = {
+      ...formData,
+      x: parseFloat(formData.x),
+      y: parseFloat(formData.y),
+      z: parseFloat(formData.z)
+    };
+    onSave(data);
+  };
+  
+  return (
+    <Stack gap="md">
+      <Group grow>
+        <TextInput
+          label="点名"
+          value={formData.pointName}
+          onChange={(e) => setFormData(prev => ({ ...prev, pointName: e.target.value }))}
+          required
+        />
+        <Select
+          label="種類"
+          value={formData.type}
+          onChange={(value) => setFormData(prev => ({ ...prev, type: value || 'boundary_point' }))}
+          data={[
+            { value: 'benchmark', label: '基準点' },
+            { value: 'control_point', label: '制御点' },
+            { value: 'boundary_point', label: '境界点' }
+          ]}
+          required
+        />
+      </Group>
+      
+      <Group grow>
+        <TextInput
+          label="X座標 (m)"
+          value={formData.x}
+          onChange={(e) => setFormData(prev => ({ ...prev, x: e.target.value }))}
+          required
+        />
+        <TextInput
+          label="Y座標 (m)"
+          value={formData.y}
+          onChange={(e) => setFormData(prev => ({ ...prev, y: e.target.value }))}
+          required
+        />
+        <TextInput
+          label="標高 (m)"
+          value={formData.z}
+          onChange={(e) => setFormData(prev => ({ ...prev, z: e.target.value }))}
+          required
+        />
+      </Group>
+      
+      <Group grow>
+        <Select
+          label="精度"
+          value={formData.accuracy}
+          onChange={(value) => setFormData(prev => ({ ...prev, accuracy: value || '±5mm' }))}
+          data={[
+            { value: '±1mm', label: '±1mm' },
+            { value: '±2mm', label: '±2mm' },
+            { value: '±3mm', label: '±3mm' },
+            { value: '±5mm', label: '±5mm' },
+            { value: '±10mm', label: '±10mm' }
+          ]}
+        />
+        <TextInput
+          label="測量者"
+          value={formData.surveyor}
+          onChange={(e) => setFormData(prev => ({ ...prev, surveyor: e.target.value }))}
+        />
+      </Group>
+      
+      <TextInput
+        label="説明"
+        value={formData.description}
+        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+      />
+      
+      <Select
+        label="座標系"
+        value={formData.coordinateSystem}
+        onChange={(value) => setFormData(prev => ({ ...prev, coordinateSystem: value || 'JGD2011' }))}
+        data={[
+          { value: 'JGD2000', label: 'JGD2000' },
+          { value: 'JGD2011', label: 'JGD2011' },
+          { value: 'Tokyo', label: '日本測地系' }
+        ]}
+      />
+      
+      <Group justify="flex-end">
+        <Button variant="light" onClick={onCancel}>
+          キャンセル
+        </Button>
+        <Button 
+          onClick={handleSubmit}
+          disabled={!formData.pointName || !formData.x || !formData.y || !formData.z}
+        >
+          {coordinate ? '更新' : '追加'}
+        </Button>
+      </Group>
+    </Stack>
   );
 };

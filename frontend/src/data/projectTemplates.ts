@@ -1,4 +1,4 @@
-import { ProjectTemplate } from '../types/project';
+import type { ProjectTemplate } from '../types/project';
 
 export const PROJECT_TEMPLATES: ProjectTemplate[] = [
   {

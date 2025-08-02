@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { ThreeCanvas } from '../modules/drawing/ThreeCanvas';
 import { useDrawingStore } from '../modules/drawing/DrawingStore';
 import { SXFLoader } from '../modules/sxf/SXFLoader';
-import { DrawingElement } from '../types/drawing';
+import type { DrawingElement } from '../types/drawing';
 
 export const DrawingDemo: React.FC = () => {
   const {

@@ -1,5 +1,13 @@
 // プロジェクト関連の型定義
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  role: 'admin' | 'editor' | 'viewer';
+}
+
 export interface ProjectTemplate {
   id: string;
   name: string;
@@ -9,8 +17,7 @@ export interface ProjectTemplate {
   features: string[];
   defaultSettings: {
     coordinateSystem: string;
-    scale: string;
-    units: string;
+    planeRectangularZone: string;
   };
 }
 
@@ -67,11 +74,10 @@ export interface Layer {
 export interface Project {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   templateId: string;
   template: ProjectTemplate;
   location: {
-    address: string;
     prefecture: string;
     city: string;
     coordinates?: {
@@ -81,8 +87,7 @@ export interface Project {
   };
   settings: {
     coordinateSystem: string;
-    scale: string;
-    units: string;
+    planeRectangularZone: string;
   };
   cadData: CADData[];
   coordinateData: CoordinateData[];
@@ -90,4 +95,5 @@ export interface Project {
   createdAt: string;
   updatedAt?: string;
   createdBy: string;
+  members: User[];
 }

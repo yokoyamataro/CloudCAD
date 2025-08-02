@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   Stack,
   TextInput,
@@ -6,47 +6,30 @@ import {
   Select,
   Group,
   Button,
+  Stepper,
   Paper,
   Title,
   Text,
-  Grid
+  Grid,
+  Box
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
+import { IconArrowLeft, IconArrowRight, IconCheck } from '@tabler/icons-react';
 import type { Project, ProjectTemplate } from '../../types/project';
-import { getPrefectureNames, getMunicipalityNames } from '../../services/municipalityService';
+import { getPrefectureNames } from '../../services/municipalityService';
 
-interface ProjectCreateFormProps {
-  selectedTemplate: ProjectTemplate | null;
+interface ProjectEditFormProps {
+  project: Project;
   onSubmit: (project: Partial<Project>) => void;
   onCancel: () => void;
 }
 
-export const ProjectCreateForm: React.FC<ProjectCreateFormProps> = ({
-  selectedTemplate,
+export const ProjectEditForm: React.FC<ProjectEditFormProps> = ({
+  project,
   onSubmit,
   onCancel
 }) => {
-  const [municipalities, setMunicipalities] = useState<string[]>([]);
-  const [loadingMunicipalities, setLoadingMunicipalities] = useState(false);
-
-  const form = useForm({
-    initialValues: {
-      name: '',
-      description: '',
-      prefecture: '',
-      city: '',
-      coordinateSystem: '',
-      planeRectangularZone: ''
-    },
-    validate: {
-      name: (value) => (!value ? 'プロジェクト名は必須です' : null),
-      prefecture: (value) => (!value ? '都道府県は必須です' : null),
-      city: (value) => (!value ? '市区町村は必須です' : null),
-      coordinateSystem: (value) => (!value ? '座標系は必須です' : null),
-      planeRectangularZone: (value) => (!value ? '平面直角座標系は必須です' : null)
-    }
-  });
-
+  
   const prefectures = getPrefectureNames();
 
   const coordinateSystems = [
@@ -77,46 +60,33 @@ export const ProjectCreateForm: React.FC<ProjectCreateFormProps> = ({
     { value: '19', label: '第19系（石垣島付近）' }
   ];
 
-  // 都道府県変更時の市町村取得
-  const handlePrefectureChange = async (prefectureName: string | null) => {
-    form.setFieldValue('prefecture', prefectureName);
-    form.setFieldValue('city', ''); // 市区町村をリセット
-    
-    if (prefectureName) {
-      setLoadingMunicipalities(true);
-      try {
-        const municipalityNames = await getMunicipalityNames(prefectureName);
-        setMunicipalities(municipalityNames);
-      } catch (error) {
-        console.error('市町村取得エラー:', error);
-        setMunicipalities([]);
-      } finally {
-        setLoadingMunicipalities(false);
-      }
-    } else {
-      setMunicipalities([]);
+  
+  const form = useForm({
+    initialValues: {
+      name: project.name || '',
+      description: project.description || '',
+      prefecture: project.location?.prefecture || '',
+      city: project.location?.city || '',
+      coordinateSystem: project.settings?.coordinateSystem || '',
+      planeRectangularZone: project.settings?.planeRectangularZone || ''
+    },
+    validate: {
+      name: (value) => (!value ? 'プロジェクト名は必須です' : null),
+      prefecture: (value) => (!value ? '都道府県は必須です' : null),
+      city: (value) => (!value ? '市区町村は必須です' : null),
+      coordinateSystem: (value) => (!value ? '座標系は必須です' : null),
+      planeRectangularZone: (value) => (!value ? '平面直角座標系は必須です' : null)
     }
-  };
-
-  // テンプレートが選択されている場合は初期値を設定
-  React.useEffect(() => {
-    if (selectedTemplate) {
-      form.setValues({
-        ...form.values,
-        coordinateSystem: selectedTemplate.defaultSettings.coordinateSystem,
-        planeRectangularZone: selectedTemplate.defaultSettings.planeRectangularZone
-      });
-    }
-  }, [selectedTemplate]);
+  });
 
   const handleSubmit = () => {
     const validation = form.validate();
-    if (!validation.hasErrors && selectedTemplate) {
+    if (!validation.hasErrors) {
       const projectData: Partial<Project> = {
         name: form.values.name,
         description: form.values.description,
-        templateId: selectedTemplate.id,
-        template: selectedTemplate,
+        templateId: project.templateId,
+        template: project.template,
         location: {
           prefecture: form.values.prefecture,
           city: form.values.city
@@ -132,15 +102,7 @@ export const ProjectCreateForm: React.FC<ProjectCreateFormProps> = ({
 
   return (
     <Stack>
-      <Title order={4}>プロジェクト作成</Title>
-      
-      {selectedTemplate && (
-        <Paper p="sm" bg="blue.0" mb="md">
-          <Text size="sm">
-            <strong>選択されたテンプレート:</strong> {selectedTemplate.name}
-          </Text>
-        </Paper>
-      )}
+      <Title order={4}>プロジェクト編集</Title>
       
       <TextInput
         label="プロジェクト名"
@@ -166,19 +128,13 @@ export const ProjectCreateForm: React.FC<ProjectCreateFormProps> = ({
             data={prefectures}
             comboboxProps={{ zIndex: 5000 }}
             {...form.getInputProps('prefecture')}
-            onChange={handlePrefectureChange}
           />
         </Grid.Col>
         <Grid.Col span={6}>
-          <Select
+          <TextInput
             label="市区町村"
-            placeholder="都道府県を選択してください"
+            placeholder="例: 渋谷区、横浜市、大阪市"
             required
-            searchable
-            data={municipalities}
-            loading={loadingMunicipalities}
-            disabled={!form.values.prefecture}
-            comboboxProps={{ zIndex: 5000 }}
             {...form.getInputProps('city')}
           />
         </Grid.Col>
@@ -215,11 +171,8 @@ export const ProjectCreateForm: React.FC<ProjectCreateFormProps> = ({
         <Button variant="default" onClick={onCancel}>
           キャンセル
         </Button>
-        <Button 
-          onClick={handleSubmit}
-          disabled={!selectedTemplate}
-        >
-          プロジェクトを作成
+        <Button onClick={handleSubmit}>
+          保存
         </Button>
       </Group>
     </Stack>

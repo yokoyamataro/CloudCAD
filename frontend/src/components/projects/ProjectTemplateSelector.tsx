@@ -14,7 +14,7 @@ import {
 } from '@mantine/core';
 import { IconCheck, IconMap, IconBuilding, IconTrees, IconHome } from '@tabler/icons-react';
 import { PROJECT_TEMPLATES, getTemplatesByCategory } from '../../data/projectTemplates';
-import { ProjectTemplate } from '../../types/project';
+import type { ProjectTemplate } from '../../types/project';
 
 interface ProjectTemplateSelectorProps {
   onSelect: (template: ProjectTemplate) => void;

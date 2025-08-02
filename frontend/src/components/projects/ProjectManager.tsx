@@ -22,19 +22,19 @@ import {
   IconCalendar,
   IconEdit,
   IconTrash,
-  IconEye
+  IconEye,
+  IconUsers
 } from '@tabler/icons-react';
 import { ProjectTemplateSelector } from './ProjectTemplateSelector';
 import { ProjectCreateForm } from './ProjectCreateForm';
 import { ProjectDetail } from './ProjectDetail';
-import { Project } from '../../types/project';
+import type { Project } from '../../types/project';
 
 interface ProjectManagerProps {
-  onBack: () => void;
-  user: any;
+  onProjectSelect: (project: Project) => void;
 }
 
-export const ProjectManager: React.FC<ProjectManagerProps> = ({ onBack, user }) => {
+export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -74,7 +74,27 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onBack, user }) 
       coordinateData: [],
       status: 'in_progress',
       createdAt: '2024-01-15T09:00:00Z',
-      createdBy: user?.id || '1'
+      createdBy: '1',
+      members: [
+        {
+          id: '1',
+          name: '田中太郎',
+          email: 'tanaka@example.com',
+          role: 'admin'
+        },
+        {
+          id: '2',
+          name: '佐藤花子',
+          email: 'sato@example.com',
+          role: 'editor'
+        },
+        {
+          id: '3',
+          name: '山田次郎',
+          email: 'yamada@example.com',
+          role: 'viewer'
+        }
+      ]
     }
   ];
 
@@ -88,7 +108,15 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onBack, user }) 
       coordinateData: [],
       status: 'planning',
       createdAt: new Date().toISOString(),
-      createdBy: user?.id || '1'
+      createdBy: '1',
+      members: [
+        {
+          id: '1',
+          name: '田中太郎',
+          email: 'tanaka@example.com',
+          role: 'admin'
+        }
+      ]
     } as Project;
 
     setProjects([...projects, newProject]);
@@ -141,9 +169,6 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onBack, user }) 
             </div>
           </Group>
           <Group>
-            <Button onClick={onBack} variant="light">
-              ダッシュボードに戻る
-            </Button>
             <Button 
               leftSection={<IconPlus size={16} />}
               onClick={() => setShowCreateModal(true)}
@@ -212,33 +237,27 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onBack, user }) 
                 </Group>
               </Stack>
 
-              <Group gap="xs">
+              <Stack gap="xs">
                 <Button
-                  variant="light"
-                  size="xs"
-                  leftSection={<IconEye size={14} />}
-                  onClick={() => setSelectedProject(project)}
-                  flex={1}
-                >
-                  詳細
-                </Button>
-                <Button
-                  variant="light"
-                  size="xs"
-                  leftSection={<IconEdit size={14} />}
-                  color="orange"
+                  variant="filled"
+                  size="sm"
+                  leftSection={<IconEye size={16} />}
+                  onClick={() => onProjectSelect(project)}
+                  fullWidth
                 >
                   編集
                 </Button>
-                <Button
-                  variant="light"
-                  size="xs"
-                  leftSection={<IconTrash size={14} />}
-                  color="red"
-                >
-                  削除
-                </Button>
-              </Group>
+                <Group gap="xs" grow>
+                  <Button
+                    variant="light"
+                    size="xs"
+                    leftSection={<IconTrash size={14} />}
+                    color="red"
+                  >
+                    削除
+                  </Button>
+                </Group>
+              </Stack>
             </Card>
           </Grid.Col>
         ))}

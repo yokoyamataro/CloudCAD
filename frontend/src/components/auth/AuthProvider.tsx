@@ -48,7 +48,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   if (isInitializing) {
     return (
       <Center style={{ height: '100vh' }}>
-        <Stack align="center" spacing="md">
+        <Stack align="center" gap="md">
           <Loader size="lg" />
           <Text>地籍調査CADを起動中...</Text>
         </Stack>
