@@ -44,6 +44,8 @@ export interface LatLng {
  * @returns 緯度経度座標 {lat: 緯度, lng: 経度}
  */
 export function transformToLatLng(point: CoordinatePoint, zoneNumber: number = 13): LatLng {
+  console.log(`transformToLatLng called with: x=${point.x}, y=${point.y}, zone=${zoneNumber}`);
+  
   const planeCoordDef = PLANE_COORDINATE_SYSTEMS[zoneNumber as keyof typeof PLANE_COORDINATE_SYSTEMS];
   
   if (!planeCoordDef) {
@@ -53,6 +55,13 @@ export function transformToLatLng(point: CoordinatePoint, zoneNumber: number = 1
   try {
     // proj4での座標変換（平面直角座標系 → WGS84）
     const [lng, lat] = proj4(planeCoordDef, WGS84, [point.y, point.x]);
+    console.log(`Transformation result: x=${point.x}, y=${point.y} -> lat=${lat}, lng=${lng}`);
+    
+    // 妥当性チェック
+    if (isNaN(lat) || isNaN(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      console.warn('Invalid transformation result, using fallback');
+      return { lat: 43.0642, lng: 144.2737 };
+    }
     
     return { lat, lng };
   } catch (error) {

@@ -15,8 +15,7 @@ export interface CoordinatePoint {
 
 export interface LotData {
   id: string;
-  parentNumber: number;
-  childNumber?: number;
+  lotNumber: string;
   landCategory: string;
   area: number;
   address: string;
@@ -139,6 +138,7 @@ export const generateSimpleCoordinateData = (): CoordinatePoint[] => {
   const allLotPoints = [...lot1Points, ...lot2Points, ...lot3Points, ...lot4Points, ...lot5Points];
 
   allLotPoints.forEach((pos, index) => {
+    console.log(`Creating boundary point ID: ${pointId.toString()}, name: ${pos.name}`);
     data.push({
       id: pointId.toString(),
       pointName: pos.name,
@@ -164,8 +164,7 @@ export const generateLotData = (): LotData[] => {
   return [
     {
       id: '1',
-      parentNumber: 123,
-      childNumber: 1,
+      lotNumber: '123-1',
       landCategory: '宅地',
       area: 150.25,
       address: '北海道釧路市春日町123-1',
@@ -176,8 +175,7 @@ export const generateLotData = (): LotData[] => {
     },
     {
       id: '2',
-      parentNumber: 123,
-      childNumber: 2,
+      lotNumber: '123-2',
       landCategory: '宅地',
       area: 125.50,
       address: '北海道釧路市春日町123-2',
@@ -188,8 +186,7 @@ export const generateLotData = (): LotData[] => {
     },
     {
       id: '3',
-      parentNumber: 124,
-      childNumber: undefined,
+      lotNumber: '124',
       landCategory: '雑種地',
       area: 88.75,
       address: '北海道釧路市春日町124',
@@ -200,8 +197,7 @@ export const generateLotData = (): LotData[] => {
     },
     {
       id: '4',
-      parentNumber: 125,
-      childNumber: 1,
+      lotNumber: '125-1',
       landCategory: '田',
       area: 225.00,
       address: '北海道釧路市春日町125-1',
@@ -212,8 +208,7 @@ export const generateLotData = (): LotData[] => {
     },
     {
       id: '5',
-      parentNumber: 125,
-      childNumber: 2,
+      lotNumber: '125-2',
       landCategory: '畑',
       area: 180.00,
       address: '北海道釧路市春日町125-2',

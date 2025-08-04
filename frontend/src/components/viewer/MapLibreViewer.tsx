@@ -12,17 +12,21 @@ import {
   Tooltip,
   ActionIcon,
   Switch,
-  Select
+  Select,
+  Slider
 } from '@mantine/core';
 import {
   IconMapPins,
   IconMap2,
   IconRefresh,
-  IconSettings
+  IconSettings,
+  IconZoomIn,
+  IconZoomOut
 } from '@tabler/icons-react';
 import type { Project } from '../../types/project';
 import { 
   transformToLatLng, 
+  transformFromLatLng,
   calculateMapBounds, 
   type CoordinatePoint as TransformCoordinatePoint,
   type LatLng 
@@ -30,6 +34,45 @@ import {
 
 // MapLibre GL CSS
 import 'maplibre-gl/dist/maplibre-gl.css';
+
+// Global CSS for range slider
+const sliderStyles = `
+  .zoom-range-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #4c6ef5;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    cursor: pointer;
+    transform: rotate(90deg);
+  }
+  
+  .zoom-range-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #4c6ef5;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    cursor: pointer;
+    border: none;
+  }
+  
+  .zoom-range-slider::-webkit-slider-track {
+    background: #e9ecef;
+    height: 4px;
+    border-radius: 2px;
+  }
+  
+  .zoom-range-slider::-moz-range-track {
+    background: #e9ecef;
+    height: 4px;
+    border-radius: 2px;
+    border: none;
+  }
+`;
 
 interface CoordinatePoint {
   id: string;
@@ -58,6 +101,7 @@ interface MapLibreViewerProps {
   hoveredLot?: string | null;
   onCoordinateClick?: (coordinate: CoordinatePoint) => void;
   onLotClick?: (lot: LotData) => void;
+  onAddCoordinate?: (coordinate: { x: number; y: number; lat: number; lng: number }) => void;
 }
 
 export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
@@ -67,14 +111,26 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
   hoveredCoordinate,
   hoveredLot,
   onCoordinateClick,
-  onLotClick
+  onLotClick,
+  onAddCoordinate
 }) => {
+  console.log('MapLibreViewer props:', { 
+    project: project?.name, 
+    coordinatesCount: coordinates.length, 
+    lotsCount: lots.length,
+    coordinates: coordinates.slice(0, 3) // 最初の3件のみ表示
+  });
   const mapRef = useRef<maplibregl.Map>();
   const [mapLoaded, setMapLoaded] = useState(false);
   const [showCoordinates, setShowCoordinates] = useState(true);
+  const [showCoordinateLabels, setShowCoordinateLabels] = useState(true);
   const [showLots, setShowLots] = useState(true);
+  const [showLotLabels, setShowLotLabels] = useState(true);
+  const [selectedCoordinate, setSelectedCoordinate] = useState<CoordinatePoint | null>(null);
   const [zoneNumber, setZoneNumber] = useState(13); // デフォルト: 北海道東部
   const [baseMapType, setBaseMapType] = useState('std'); // 地理院地図標準
+  const [currentZoom, setCurrentZoom] = useState(15);
+  const [sliderZoom, setSliderZoom] = useState(15);
   
   // 地理院地図のスタイル定義
   const GSI_TILE_SOURCES = {
@@ -105,6 +161,8 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
     const source = GSI_TILE_SOURCES[baseMapType as keyof typeof GSI_TILE_SOURCES];
     return {
       version: 8,
+      // ラベル表示のためのフォント設定を追加
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       sources: {
         'gsi-tiles': {
           type: 'raster' as const,
@@ -125,23 +183,31 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
 
   // 座標変換とマップ中心の計算
   const { mapCenter, mapZoom, transformedCoordinates, transformedLots } = useMemo(() => {
-    const validCoords = coordinates.filter(c => c.visible && 
-      typeof c.x === 'number' && typeof c.y === 'number' && 
-      !isNaN(c.x) && !isNaN(c.y) &&
-      c.x !== 1000 && c.y !== 1000
-    );
+    console.log('Processing coordinates:', coordinates);
+    const validCoords = coordinates.filter(c => {
+      const isValid = c.visible && 
+        typeof c.x === 'number' && typeof c.y === 'number' && 
+        !isNaN(c.x) && !isNaN(c.y) &&
+        Math.abs(c.x) < 100000 && Math.abs(c.y) < 100000; // より適切な範囲チェック
+      
+      console.log(`Coordinate ${c.id} (${c.pointName}): x=${c.x}, y=${c.y}, valid=${isValid}`);
+      return isValid;
+    });
 
     if (validCoords.length === 0) {
+      console.log('No valid coordinates found, using default center');
       return {
-        mapCenter: { lat: 35.6812, lng: 139.7671 } as LatLng,
+        mapCenter: { lat: 43.0642, lng: 144.2737 } as LatLng, // 釧路市周辺
         mapZoom: 15,
-        transformedCoordinates: []
+        transformedCoordinates: [],
+        transformedLots: []
       };
     }
 
     // 測量座標を緯度経度に変換
     const transformed = validCoords.map(coord => {
       const latLng = transformToLatLng({ x: coord.x, y: coord.y }, zoneNumber);
+      console.log(`Transformed coordinate ${coord.id}: x=${coord.x}, y=${coord.y} -> lat=${latLng.lat}, lng=${latLng.lng}`);
       return {
         ...coord,
         lat: latLng.lat,
@@ -150,22 +216,41 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
     });
 
     // 地番データの座標変換
-    const transformedLotData = lots.filter(l => l.visible).map(lot => {
+    console.log('Starting lot transformation. Lots:', lots);
+    console.log('Valid coordinates:', validCoords);
+    
+    const transformedLotData = (lots || []).filter(l => l.visible).map(lot => {
+      console.log('Processing lot:', lot);
+      console.log('Available coordinate IDs:', validCoords.map(c => c.id));
+      
       const lotCoords = lot.coordinates
-        .map(coordId => validCoords.find(c => c.id === coordId))
+        .map(coordId => {
+          const found = validCoords.find(c => c.id === coordId);
+          console.log(`Looking for coord ID ${coordId}, found:`, found ? `${found.pointName} (x=${found.x}, y=${found.y})` : 'NOT FOUND');
+          return found;
+        })
         .filter(c => c !== undefined);
       
-      if (lotCoords.length < 3) return null;
+      console.log(`Lot ${lot.lotNumber} coordinates found (${lotCoords.length}/${lot.coordinates.length}):`, lotCoords.map(c => c?.pointName));
+      
+      if (lotCoords.length < 3) {
+        console.log(`Lot ${lot.id} skipped - insufficient coordinates (${lotCoords.length})`);
+        return null;
+      }
       
       const lotLatLngs = lotCoords.map(coord => 
         transformToLatLng({ x: coord.x, y: coord.y }, zoneNumber)
       );
+      
+      console.log('Transformed coordinates:', lotLatLngs);
       
       return {
         ...lot,
         coordinates: lotLatLngs
       };
     }).filter(lot => lot !== null);
+    
+    console.log('Final transformed lots:', transformedLotData);
 
     // マップの中心とズームを計算
     const bounds = calculateMapBounds(
@@ -179,36 +264,94 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
       transformedCoordinates: transformed,
       transformedLots: transformedLotData
     };
-  }, [coordinates, zoneNumber]);
+  }, [coordinates, lots, zoneNumber]);
+
 
   // マップロード時の処理
   const handleMapLoad = (map: maplibregl.Map) => {
+    console.log('Map loaded, adding data sources');
     mapRef.current = map;
     setMapLoaded(true);
     
+    // エラーハンドリング
+    map.on('error', (e) => {
+      console.error('MapLibre error:', e);
+    });
+    
     // 座標点と地番のデータソースを追加
-    addCoordinateDataSources(map);
-    addLotDataSources(map);
+    try {
+      addCoordinateDataSources(map);
+      addLotDataSources(map);
+    } catch (error) {
+      console.error('Error adding data sources:', error);
+    }
+    
+    // ズーム変更を監視
+    map.on('zoom', () => {
+      setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
+    });
+    
+    // 地図の空白部分をクリックで選択解除
+    map.on('click', (e) => {
+      // 座標点やその他の要素がクリックされていない場合のみ選択を解除
+      const features = map.queryRenderedFeatures(e.point);
+      const hasCoordinateFeature = features.some(f => f.layer.id === 'coordinate-points');
+      
+      if (!hasCoordinateFeature) {
+        setSelectedCoordinate(null);
+      }
+    });
+
+    // ダブルクリックで新点追加
+    map.on('dblclick', (e) => {
+      if (onAddCoordinate) {
+        const { lng, lat } = e.lngLat;
+        console.log(`Double-clicked at lat: ${lat}, lng: ${lng}`);
+        
+        // 緯度経度を測量座標に変換
+        const surveyCoord = transformFromLatLng({ lat, lng }, zoneNumber);
+        console.log(`Converted to survey coordinates: x=${surveyCoord.x}, y=${surveyCoord.y}`);
+        
+        // コールバック関数を呼び出し
+        onAddCoordinate({
+          x: Math.round(surveyCoord.x * 1000) / 1000, // mm精度に丸める
+          y: Math.round(surveyCoord.y * 1000) / 1000,
+          lat,
+          lng
+        });
+      }
+    });
+    
+    // 初期ズームレベルを設定
+    setCurrentZoom(Math.round(map.getZoom() * 10) / 10);
   };
 
   // 座標点データソースの追加
   const addCoordinateDataSources = (map: maplibregl.Map) => {
+    console.log('addCoordinateDataSources called with transformedCoordinates:', transformedCoordinates);
+    
     // 座標点のGeoJSONを生成
-    const coordinateFeatures = transformedCoordinates.map(coord => ({
-      type: 'Feature' as const,
-      properties: {
-        id: coord.id,
-        pointName: coord.pointName,
-        type: coord.type,
-        x: coord.x,
-        y: coord.y,
-        z: coord.z
-      },
-      geometry: {
-        type: 'Point' as const,
-        coordinates: [coord.lng, coord.lat]
-      }
-    }));
+    const coordinateFeatures = transformedCoordinates.map(coord => {
+      const feature = {
+        type: 'Feature' as const,
+        properties: {
+          id: coord.id,
+          pointName: coord.pointName,
+          type: coord.type,
+          x: coord.x,
+          y: coord.y,
+          z: coord.z
+        },
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [coord.lng, coord.lat]
+        }
+      };
+      console.log(`Creating feature for ${coord.pointName}:`, feature);
+      return feature;
+    });
+    
+    console.log('Generated coordinateFeatures:', coordinateFeatures);
 
     // 座標点データソースを追加
     if (!map.getSource('coordinates')) {
@@ -243,6 +386,26 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
         }
       });
 
+      // 選択された座標点のハイライトレイヤーを追加
+      map.addLayer({
+        id: 'selected-coordinate',
+        type: 'circle',
+        source: 'coordinates',
+        paint: {
+          'circle-radius': [
+            'case',
+            ['==', ['get', 'type'], 'benchmark'], 12,
+            ['==', ['get', 'type'], 'control_point'], 11,
+            10
+          ],
+          'circle-color': 'transparent',
+          'circle-stroke-width': 3,
+          'circle-stroke-color': '#ff6b6b',
+          'circle-opacity': 0
+        },
+        filter: ['==', ['get', 'id'], ''] // 初期状態では何も表示しない
+      });
+
       // 座標点ラベルのレイヤーを追加
       map.addLayer({
         id: 'coordinate-labels',
@@ -251,14 +414,24 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
         layout: {
           'text-field': ['get', 'pointName'],
           'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
-          'text-offset': [0, -2],
+          'text-offset': [0, -2.5],
           'text-anchor': 'bottom',
-          'text-size': 12
+          'text-size': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            10, 10,
+            15, 12,
+            20, 16
+          ],
+          'text-allow-overlap': true,
+          'text-ignore-placement': false
         },
         paint: {
           'text-color': '#2c3e50',
           'text-halo-color': '#ffffff',
-          'text-halo-width': 2
+          'text-halo-width': 2,
+          'text-opacity': 1
         }
       });
 
@@ -267,8 +440,11 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
         if (e.features && e.features[0]) {
           const feature = e.features[0];
           const coord = coordinates.find(c => c.id === feature.properties?.id);
-          if (coord && onCoordinateClick) {
-            onCoordinateClick(coord);
+          if (coord) {
+            setSelectedCoordinate(coord);
+            if (onCoordinateClick) {
+              onCoordinateClick(coord);
+            }
           }
         }
       });
@@ -286,6 +462,8 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
 
   // 地番データソースの追加
   const addLotDataSources = (map: maplibregl.Map) => {
+    console.log('addLotDataSources called with transformedLots:', transformedLots);
+    
     // 地番のGeoJSONを生成
     const lotFeatures = transformedLots.map(lot => ({
       type: 'Feature' as const,
@@ -300,6 +478,8 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
         coordinates: [lot.coordinates.map(coord => [coord.lng, coord.lat])]
       }
     }));
+
+    console.log('Generated lotFeatures:', lotFeatures);
 
     // 地番データソースを追加
     if (!map.getSource('lots')) {
@@ -355,15 +535,31 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
         type: 'symbol',
         source: 'lots',
         layout: {
-          'text-field': ['get', 'lotNumber'],
+          'text-field': [
+            'format',
+            ['get', 'lotNumber'], { 'font-scale': 1.2 },
+            '\n',
+            ['get', 'landCategory'], { 'font-scale': 0.8 }
+          ],
           'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
-          'text-size': 14,
-          'text-anchor': 'center'
+          'text-size': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            10, 10,
+            15, 14,
+            20, 18
+          ],
+          'text-anchor': 'center',
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+          'symbol-placement': 'point'
         },
         paint: {
-          'text-color': '#2c3e50',
+          'text-color': '#1a365d',
           'text-halo-color': '#ffffff',
-          'text-halo-width': 2
+          'text-halo-width': 3,
+          'text-opacity': 1
         }
       });
 
@@ -443,20 +639,33 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
     }
   }, [transformedCoordinates, transformedLots, mapLoaded]);
 
-  // レイヤー表示切り替え
+  // 座標点表示切り替え
   useEffect(() => {
     if (mapLoaded && mapRef.current) {
       const map = mapRef.current;
       const visibility = showCoordinates ? 'visible' : 'none';
       
+      console.log(`Setting coordinate-points visibility to: ${visibility}`);
+      
       if (map.getLayer('coordinate-points')) {
         map.setLayoutProperty('coordinate-points', 'visibility', visibility);
       }
+    }
+  }, [showCoordinates, mapLoaded]);
+
+  // 座標点名ラベル表示切り替え
+  useEffect(() => {
+    if (mapLoaded && mapRef.current) {
+      const map = mapRef.current;
+      const visibility = (showCoordinates && showCoordinateLabels) ? 'visible' : 'none';
+      
+      console.log(`Setting coordinate-labels visibility to: ${visibility}`);
+      
       if (map.getLayer('coordinate-labels')) {
         map.setLayoutProperty('coordinate-labels', 'visibility', visibility);
       }
     }
-  }, [showCoordinates, mapLoaded]);
+  }, [showCoordinates, showCoordinateLabels, mapLoaded]);
 
   // 地番レイヤー表示切り替え
   useEffect(() => {
@@ -470,11 +679,42 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
       if (map.getLayer('lot-outlines')) {
         map.setLayoutProperty('lot-outlines', 'visibility', visibility);
       }
+    }
+  }, [showLots, mapLoaded]);
+
+  // 地番ラベル表示切り替え
+  useEffect(() => {
+    if (mapLoaded && mapRef.current) {
+      const map = mapRef.current;
+      const visibility = (showLots && showLotLabels) ? 'visible' : 'none';
+      
+      console.log(`Setting lot-labels visibility to: ${visibility}`);
+      
       if (map.getLayer('lot-labels')) {
         map.setLayoutProperty('lot-labels', 'visibility', visibility);
       }
     }
-  }, [showLots, mapLoaded]);
+  }, [showLots, showLotLabels, mapLoaded]);
+
+  // 選択された座標点のハイライト更新
+  useEffect(() => {
+    if (mapLoaded && mapRef.current) {
+      const map = mapRef.current;
+      
+      if (map.getLayer('selected-coordinate')) {
+        if (selectedCoordinate) {
+          console.log(`Highlighting coordinate: ${selectedCoordinate.pointName} (ID: ${selectedCoordinate.id})`);
+          map.setFilter('selected-coordinate', ['==', ['get', 'id'], selectedCoordinate.id]);
+          // ハイライトを表示
+          map.setPaintProperty('selected-coordinate', 'circle-opacity', 1);
+        } else {
+          // ハイライトを非表示
+          map.setFilter('selected-coordinate', ['==', ['get', 'id'], '']);
+          map.setPaintProperty('selected-coordinate', 'circle-opacity', 0);
+        }
+      }
+    }
+  }, [selectedCoordinate, mapLoaded]);
 
   // 地図をリセット
   const handleResetView = () => {
@@ -487,24 +727,48 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
     }
   };
 
+  // ズームイン
+  const handleZoomIn = () => {
+    if (mapRef.current) {
+      mapRef.current.zoomIn({ duration: 300 });
+    }
+  };
+
+  // ズームアウト
+  const handleZoomOut = () => {
+    if (mapRef.current) {
+      mapRef.current.zoomOut({ duration: 300 });
+    }
+  };
+
+  // スライドバーでのズーム変更
+  const handleZoomChange = (value: number) => {
+    if (mapRef.current) {
+      mapRef.current.zoomTo(value, { duration: 200 });
+      setCurrentZoom(value);
+    }
+  };
+
   return (
-    <Paper 
-      shadow="lg" 
-      withBorder 
-      style={{ 
-        width: '33.333vw',
-        height: '100vh',
-        position: 'fixed',
-        right: 0,
-        top: 0,
-        zIndex: 100,
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
-        borderLeft: '3px solid #4c6ef5',
-        overflow: 'hidden'
-      }}
-    >
+    <>
+      <style dangerouslySetInnerHTML={{ __html: sliderStyles }} />
+      <Paper 
+        shadow="lg" 
+        withBorder 
+        style={{ 
+          width: '33.333vw',
+          height: '100vh',
+          position: 'fixed',
+          right: 0,
+          top: 0,
+          zIndex: 100,
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+          borderLeft: '3px solid #4c6ef5',
+          overflow: 'hidden'
+        }}
+      >
       {/* ヘッダー */}
       <div style={{ 
         padding: '20px', 
@@ -517,6 +781,31 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
             地理院地図ビューワー
           </Title>
           <Group>
+            <Group gap="xs">
+              <Text size="xs" style={{ color: '#6c757d', minWidth: '50px' }}>
+                Z: {currentZoom}
+              </Text>
+              <Tooltip label="ズームアウト">
+                <ActionIcon 
+                  variant="light" 
+                  color="gray"
+                  size="sm"
+                  onClick={handleZoomOut}
+                >
+                  <IconZoomOut size={14} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="ズームイン">
+                <ActionIcon 
+                  variant="light" 
+                  color="gray"
+                  size="sm"
+                  onClick={handleZoomIn}
+                >
+                  <IconZoomIn size={14} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
             <Tooltip label="表示設定">
               <ActionIcon 
                 variant="light" 
@@ -555,9 +844,9 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
           }}
         >
           <Text size="sm" fw={500} style={{ color: '#495057' }}>
-            📍 座標点: {coordinates.filter(c => c.visible).length}点 | 
-            🗺️ 地番: {lots.filter(l => l.visible).length}件 | 
-            📐 13系（北海道東部）
+            📍 座標点: {transformedCoordinates.length}/{coordinates.filter(c => c.visible).length}点 | 
+            🗺️ 地番: {transformedLots.length}/{lots.filter(l => l.visible).length}件 | 
+            📐 {zoneNumber}系（{zoneNumber === 13 ? '北海道東部' : `系番号${zoneNumber}`}）
           </Text>
         </Paper>
       </div>
@@ -577,6 +866,17 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
               }}
             />
             <Switch
+              label="点名"
+              checked={showCoordinateLabels}
+              onChange={(event) => setShowCoordinateLabels(event.currentTarget.checked)}
+              size="sm"
+              color="cyan"
+              disabled={!showCoordinates}
+              styles={{
+                label: { color: showCoordinates ? '#495057' : '#adb5bd', fontSize: '12px' }
+              }}
+            />
+            <Switch
               label="地番"
               checked={showLots}
               onChange={(event) => setShowLots(event.currentTarget.checked)}
@@ -584,6 +884,17 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
               color="orange"
               styles={{
                 label: { color: '#495057', fontSize: '12px' }
+              }}
+            />
+            <Switch
+              label="地番名"
+              checked={showLotLabels}
+              onChange={(event) => setShowLotLabels(event.currentTarget.checked)}
+              size="sm"
+              color="teal"
+              disabled={!showLots}
+              styles={{
+                label: { color: showLots ? '#495057' : '#adb5bd', fontSize: '12px' }
               }}
             />
           </Group>
@@ -645,7 +956,128 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
           <ScaleControl position="bottom-left" />
           <FullscreenControl position="top-right" />
         </Map>
+
+        {/* ズームスライドバー（方位マークの下） */}
+        <div
+          style={{
+            position: 'absolute',
+            top: '120px',
+            left: '12px',
+            zIndex: 1001,
+            background: 'rgba(255, 255, 255, 0.95)',
+            borderRadius: '6px',
+            padding: '12px 3px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            border: '1px solid rgba(0,0,0,0.1)',
+            width: '28px',
+            pointerEvents: 'all'
+          }}
+        >
+          <Stack gap="sm" align="center">
+            <Text size="xs" fw={600} style={{ color: '#495057', writingMode: 'vertical-rl' }}>
+              ズーム
+            </Text>
+            <div style={{ height: '120px', display: 'flex', alignItems: 'center' }}>
+              <input
+                type="range"
+                min={5}
+                max={20}
+                step={0.5}
+                value={currentZoom}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  handleZoomChange(parseFloat(e.target.value));
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                onMouseMove={(e) => e.stopPropagation()}
+                style={{
+                  width: '100px',
+                  height: '4px',
+                  background: '#e9ecef',
+                  outline: 'none',
+                  transform: 'rotate(-90deg)',
+                  transformOrigin: 'center',
+                  cursor: 'pointer',
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  borderRadius: '2px'
+                }}
+                className="zoom-range-slider"
+              />
+            </div>
+            <Text size="xs" fw={500} style={{ color: '#6c757d' }}>
+              {currentZoom.toFixed(1)}
+            </Text>
+          </Stack>
+        </div>
       </div>
+
+      {/* 選択された座標点の詳細情報 */}
+      {selectedCoordinate && (
+        <Paper 
+          withBorder 
+          p="md" 
+          style={{ 
+            background: 'rgba(255,255,255,0.95)',
+            backdropFilter: 'blur(10px)',
+            borderRadius: '8px',
+            margin: '10px',
+            marginBottom: '10px',
+            flexShrink: 0,
+            border: '2px solid #4c6ef5'
+          }}
+        >
+          <Group justify="space-between" align="flex-start" mb="sm">
+            <Text fw={700} size="sm" style={{ color: '#2c3e50' }}>
+              📍 選択された座標点
+            </Text>
+            <Button
+              variant="subtle"
+              size="xs"
+              onClick={() => setSelectedCoordinate(null)}
+              style={{ padding: '2px 6px' }}
+            >
+              ×
+            </Button>
+          </Group>
+          
+          <Stack gap="xs">
+            <Group justify="space-between">
+              <Text size="xs" fw={500} style={{ color: '#495057' }}>点名:</Text>
+              <Text size="xs" fw={600} style={{ color: '#2c3e50' }}>{selectedCoordinate.pointName}</Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="xs" fw={500} style={{ color: '#495057' }}>種別:</Text>
+              <Text size="xs" style={{ 
+                color: selectedCoordinate.type === 'benchmark' ? '#228be6' : 
+                       selectedCoordinate.type === 'control_point' ? '#40c057' : '#fd7e14'
+              }}>
+                {selectedCoordinate.type === 'benchmark' ? '基準点' : 
+                 selectedCoordinate.type === 'control_point' ? '制御点' : '境界点'}
+              </Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="xs" fw={500} style={{ color: '#495057' }}>X座標:</Text>
+              <Text size="xs" style={{ fontFamily: 'monospace', color: '#2c3e50' }}>
+                {selectedCoordinate.x.toFixed(3)} m
+              </Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="xs" fw={500} style={{ color: '#495057' }}>Y座標:</Text>
+              <Text size="xs" style={{ fontFamily: 'monospace', color: '#2c3e50' }}>
+                {selectedCoordinate.y.toFixed(3)} m
+              </Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="xs" fw={500} style={{ color: '#495057' }}>標高:</Text>
+              <Text size="xs" style={{ fontFamily: 'monospace', color: '#2c3e50' }}>
+                {selectedCoordinate.z.toFixed(3)} m
+              </Text>
+            </Group>
+          </Stack>
+        </Paper>
+      )}
 
       {/* 凡例 */}
       <Paper 
@@ -699,5 +1131,6 @@ export const MapLibreViewer: React.FC<MapLibreViewerProps> = ({
         </Group>
       </Paper>
     </Paper>
+    </>
   );
 };

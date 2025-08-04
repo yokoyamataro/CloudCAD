@@ -51,7 +51,6 @@ import { CoordinateLotViewer } from '../viewer/CoordinateLotViewer';
 import { 
   generateSimpleCoordinateData, 
   generateLotData, 
-  formatLotNumber,
   type CoordinatePoint as MockCoordinatePoint,
   type LotData as MockLotData
 } from '../../utils/mockDataGenerator';
@@ -82,8 +81,16 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [members, setMembers] = useState(project.members);
   
   // 座標・地番データ（CoordinateEditorと同じデータを使用）
-  const [coordinateData] = useState(() => generateSimpleCoordinateData());
-  const [lotData] = useState(() => generateLotData());
+  const [coordinateData, setCoordinateData] = useState(() => {
+    const data = generateSimpleCoordinateData();
+    console.log('Generated coordinate data:', data);
+    return data;
+  });
+  const [lotData] = useState(() => {
+    const data = generateLotData();
+    console.log('Generated lot data:', data);
+    return data;
+  });
   
   // サンプルタスクデータ
   const sampleTasks = [
@@ -199,6 +206,28 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
 
   const handleMemberDelete = (memberId: string) => {
     setMembers(prev => prev.filter(member => member.id !== memberId));
+  };
+
+  // 新しい座標点を追加する関数
+  const handleAddCoordinate = (newCoord: { x: number; y: number; lat: number; lng: number }) => {
+    const newId = (coordinateData.length + 1).toString();
+    const newPointName = `NEW-${String(coordinateData.length + 1).padStart(3, '0')}`;
+    
+    const newCoordinatePoint = {
+      id: newId,
+      pointName: newPointName,
+      type: 'boundary_point' as const,
+      x: newCoord.x,
+      y: newCoord.y,
+      z: 50.0, // デフォルト標高
+      description: `新規追加点${coordinateData.length + 1}号`,
+      surveyDate: new Date().toISOString().split('T')[0],
+      assignee: '未割当',
+      status: '測量中'
+    };
+
+    console.log('Adding new coordinate point:', newCoordinatePoint);
+    setCoordinateData(prev => [...prev, newCoordinatePoint]);
   };
 
   const getStatusColor = (status: string) => {
@@ -1046,7 +1075,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         }))}
         lots={lotData.map(lot => ({
           id: lot.id,
-          lotNumber: formatLotNumber(lot.parentNumber, lot.childNumber),
+          lotNumber: lot.lotNumber,
           landCategory: lot.landCategory,
           area: lot.area,
           coordinates: lot.coordinates,
@@ -1058,6 +1087,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         onLotClick={(lot) => {
           console.log('地番クリック:', lot.lotNumber);
         }}
+        onAddCoordinate={handleAddCoordinate}
       />
     </div>
     </>

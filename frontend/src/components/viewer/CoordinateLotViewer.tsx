@@ -29,6 +29,7 @@ interface CoordinateLotViewerProps {
   hoveredLot?: string | null;
   onCoordinateClick?: (coordinate: CoordinatePoint) => void;
   onLotClick?: (lot: LotData) => void;
+  onAddCoordinate?: (coordinate: { x: number; y: number; lat: number; lng: number }) => void;
 }
 
 /**
@@ -42,7 +43,8 @@ export const CoordinateLotViewer: React.FC<CoordinateLotViewerProps> = ({
   hoveredCoordinate,
   hoveredLot,
   onCoordinateClick,
-  onLotClick
+  onLotClick,
+  onAddCoordinate
 }) => {
   return (
     <MapLibreViewer
@@ -53,6 +55,7 @@ export const CoordinateLotViewer: React.FC<CoordinateLotViewerProps> = ({
       hoveredLot={hoveredLot}
       onCoordinateClick={onCoordinateClick}
       onLotClick={onLotClick}
+      onAddCoordinate={onAddCoordinate}
     />
   );
 };
