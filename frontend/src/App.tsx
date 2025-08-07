@@ -3,7 +3,7 @@ import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
 import { ProjectManager } from './components/projects/ProjectManager';
 import { ProjectDetail } from './components/projects/ProjectDetail';
-import { CADEditor } from './components/cad/CADEditor';
+import CADEditor from './components/cad/CADEditor';
 import { CoordinateEditor } from './components/coordinates/CoordinateEditor';
 import { LotEditor } from './components/lots/LotEditor';
 import type { Project } from './types/project';
@@ -63,6 +63,7 @@ function App() {
     console.log('CADデータを保存:', data);
     // ここで実際の保存処理を実装
   };
+
 
   const renderCurrentView = () => {
     console.log('renderCurrentView called with currentView:', appState.currentView);

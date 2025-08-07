@@ -1,148 +1,164 @@
 import React from 'react';
 import {
-  AppShell,
+  Paper,
   Group,
+  Title,
   Text,
-  Menu,
   Avatar,
+  Menu,
   ActionIcon,
-  Button,
-  Indicator
+  Badge,
+  Divider
 } from '@mantine/core';
 import {
+  IconMap,
   IconUser,
   IconSettings,
   IconLogout,
-  IconFileText,
-  IconUsers,
-  IconBell
+  IconChevronDown
 } from '@tabler/icons-react';
-import { useAuth } from '../../hooks/useAuth';
 
-interface AppHeaderProps {
-  onOpenProjects?: () => void;
-  onOpenSettings?: () => void;
-  hasUnsavedChanges?: boolean;
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'editor' | 'viewer';
+  avatar?: string;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({
-  onOpenProjects,
-  onOpenSettings,
-  hasUnsavedChanges = false
-}) => {
-  const { user, logout, hasRole } = useAuth();
+interface AppHeaderProps {
+  user?: User;
+  onUserMenuClick?: (action: 'profile' | 'settings' | 'logout') => void;
+}
 
-  const handleLogout = () => {
-    if (hasUnsavedChanges) {
-      if (window.confirm('未保存の変更があります。ログアウトしますか？')) {
-        logout();
-      }
-    } else {
-      logout();
+export const AppHeader: React.FC<AppHeaderProps> = ({ 
+  user = {
+    id: '1',
+    name: '田中太郎',
+    email: 'tanaka@example.com',
+    role: 'admin'
+  },
+  onUserMenuClick 
+}) => {
+
+  const getRoleLabel = (role: string) => {
+    switch (role) {
+      case 'admin': return '管理者';
+      case 'editor': return '編集者';
+      case 'viewer': return '閲覧者';
+      default: return '不明';
     }
   };
 
   const getRoleColor = (role: string) => {
     switch (role) {
       case 'admin': return 'red';
-      case 'surveyor': return 'blue';
+      case 'editor': return 'blue';
+      case 'viewer': return 'gray';
       default: return 'gray';
     }
   };
 
-  const getRoleLabel = (role: string) => {
-    switch (role) {
-      case 'admin': return '管理者';
-      case 'surveyor': return '測量士';
-      default: return '一般ユーザー';
-    }
-  };
-
   return (
-    <div style={{ height: 60, padding: '0 16px', borderBottom: '1px solid #e0e0e0', backgroundColor: 'white' }}>
-      <Group justify="space-between" h="100%">
-        {/* ロゴ・タイトル */}
-        <Group>
-          <Text 
-            size="xl" 
-            fw={700} 
-            variant="gradient"
-            gradient={{ from: 'blue', to: 'cyan', deg: 45 }}
-          >
-            地籍調査CAD
-          </Text>
-          {hasUnsavedChanges && (
-            <Indicator color="orange" size={8}>
-              <IconFileText size={16} />
-            </Indicator>
-          )}
+    <Paper 
+      shadow="sm" 
+      p="xs" 
+      withBorder 
+      style={{ 
+        borderRadius: 0,
+        borderBottom: '1px solid #495057',
+        position: 'sticky',
+        top: 0,
+        zIndex: 1000,
+        backgroundColor: '#343a40',
+        color: 'white'
+      }}
+    >
+      <Group justify="space-between">
+        {/* 左側：アプリ名とロゴ */}
+        <Group gap="sm">
+          <Group gap="xs">
+            <IconMap size={24} color="#17a2b8" />
+            <div>
+              <Title order={3} size="h4" c="white">
+                CloudCAD
+              </Title>
+              <Text size="xs" c="gray.4">
+                地籍調査支援システム
+              </Text>
+            </div>
+          </Group>
         </Group>
 
-        {/* ナビゲーション・ユーザーメニュー */}
-        <Group>
-          {/* プロジェクト管理ボタン */}
-          {hasRole('surveyor') && (
-            <Button
-              variant="light"
-              leftSection={<IconUsers size={16} />}
-              onClick={onOpenProjects}
-            >
-              プロジェクト管理
-            </Button>
-          )}
-
-          {/* 通知ボタン（将来の拡張用） */}
-          <ActionIcon variant="light" size="lg">
-            <IconBell size={16} />
-          </ActionIcon>
-
-          {/* ユーザーメニュー */}
-          <Menu width={200} position="bottom-end">
+        {/* 右側：ユーザー情報とメニュー */}
+        <Group gap="sm">
+          <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>
-              <Group style={{ cursor: 'pointer' }}>
-                <Avatar
-                  color={getRoleColor(user?.role || 'user')}
-                  radius="xl"
+              <Group 
+                gap="sm" 
+                style={{ cursor: 'pointer', padding: '6px 8px', borderRadius: '6px' }}
+                className="hover:bg-gray-700"
+              >
+                <Avatar 
+                  src={user.avatar} 
+                  alt={user.name}
                   size="sm"
+                  color="teal"
                 >
-                  {user?.name?.charAt(0).toUpperCase()}
+                  {user.name.charAt(0)}
                 </Avatar>
-                <div style={{ flex: 1 }}>
-                  <Text size="sm" fw={500}>
-                    {user?.name}
+                <div style={{ textAlign: 'right' }}>
+                  <Text size="sm" fw={500} c="white">
+                    {user.name}
                   </Text>
-                  <Text size="xs" c="dimmed">
-                    {getRoleLabel(user?.role || 'user')}
-                  </Text>
+                  <Badge 
+                    size="xs" 
+                    color={getRoleColor(user.role)}
+                    variant="filled"
+                  >
+                    {getRoleLabel(user.role)}
+                  </Badge>
                 </div>
+                <ActionIcon variant="subtle" color="gray.3" size="sm">
+                  <IconChevronDown size={14} />
+                </ActionIcon>
               </Group>
             </Menu.Target>
 
             <Menu.Dropdown>
-              <Menu.Label>アカウント</Menu.Label>
-              
-              <Menu.Item leftSection={<IconUser size={16} />}>
-                <div>
-                  <Text size="sm">{user?.name}</Text>
-                  <Text size="xs" c="dimmed">{user?.email}</Text>
-                </div>
+              <Menu.Label>アカウント情報</Menu.Label>
+              <Menu.Item>
+                <Group gap="xs">
+                  <Avatar size="xs" color="blue">{user.name.charAt(0)}</Avatar>
+                  <div>
+                    <Text size="sm">{user.name}</Text>
+                    <Text size="xs" c="dimmed">{user.email}</Text>
+                  </div>
+                </Group>
               </Menu.Item>
-
-              <Menu.Divider />
-
-              <Menu.Item 
+              
+              <Divider my="xs" />
+              
+              <Menu.Item
+                leftSection={<IconUser size={16} />}
+                onClick={() => onUserMenuClick?.('profile')}
+              >
+                プロフィール
+              </Menu.Item>
+              
+              <Menu.Item
                 leftSection={<IconSettings size={16} />}
-                onClick={onOpenSettings}
+                onClick={() => onUserMenuClick?.('settings')}
               >
                 設定
               </Menu.Item>
-
-              <Menu.Divider />
-
+              
+              <Divider my="xs" />
+              
               <Menu.Item
-                color="red"
                 leftSection={<IconLogout size={16} />}
-                onClick={handleLogout}
+                onClick={() => onUserMenuClick?.('logout')}
+                color="red"
               >
                 ログアウト
               </Menu.Item>
@@ -150,6 +166,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </Menu>
         </Group>
       </Group>
-    </div>
+    </Paper>
   );
 };

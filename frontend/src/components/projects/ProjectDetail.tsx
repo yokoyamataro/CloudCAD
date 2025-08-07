@@ -55,6 +55,8 @@ import {
   type LotData as MockLotData
 } from '../../utils/mockDataGenerator';
 import { ProjectEditForm } from './ProjectEditForm';
+import { SideMenu, MenuToggleButton } from '../common/SideMenu';
+import { CoordinateEditor } from '../coordinates/CoordinateEditor';
 
 interface ProjectDetailProps {
   project: Project;
@@ -79,6 +81,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [editingMember, setEditingMember] = useState<any>(null);
   const [members, setMembers] = useState(project.members);
+  
+  // サイドメニュー状態
+  const [sideMenuOpened, setSideMenuOpened] = useState(false);
+  const [activeView, setActiveView] = useState<'overview' | 'members' | 'tasks' | 'coordinates' | 'lots' | 'settings'>('overview');
   
   // 座標・地番データ（CoordinateEditorと同じデータを使用）
   const [coordinateData, setCoordinateData] = useState(() => {
@@ -382,6 +388,20 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const allCADData = [...project.cadData, ...sampleCADData];
   const allCoordinateData = [...project.coordinateData, ...sampleCoordinateData];
 
+  const handleMenuItemClick = (item: 'members' | 'tasks' | 'coordinates' | 'lots' | 'settings') => {
+    setActiveView(item);
+    setSideMenuOpened(false);
+  };
+
+  // 座標・地番編集モードを開く
+  const handleCoordinateMode = () => {
+    onEditMode('coordinate');
+  };
+
+  const handleLotMode = () => {
+    onEditMode('lot');
+  };
+
   return (
     <>
       {/* カスタムプロジェクト編集モーダル */}
@@ -435,9 +455,18 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         </div>
       )}
 
-      <div style={{ display: 'flex' }}>
+      <div style={{ display: 'flex', position: 'relative' }}>
         <div style={{ flex: 1, marginRight: '33.333vw' }}>
-          <Container size="xl" py={20}>
+          <Container 
+            size="xl" 
+            py={20} 
+            style={{ 
+              paddingLeft: '80px', // デスクトップ: メニューボタン分のスペース確保
+              '@media (max-width: 768px)': {
+                paddingLeft: '80px' // モバイル: メニューボタン分のスペース確保
+              }
+            }}
+          >
           {/* ヘッダー */}
       <Paper shadow="sm" p={20} mb={30} withBorder>
         <Group justify="space-between">
@@ -516,7 +545,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         </Group>
       </Paper>
 
-      {/* メンバーとタスクの管理メニュー */}
+      {/* メンバーとタスクの管理概要 - サイドメニューで詳細管理 */}
       <Paper shadow="sm" p={20} mb={30} withBorder>
         <Stack gap="md">
           <Group justify="space-between" align="center">
@@ -526,56 +555,38 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                 <Title order={3}>メンバーとタスクの管理</Title>
               </Group>
               <Text size="sm" c="dimmed">
-                プロジェクトメンバーの作業進捗を管理します
+                左メニューからメンバー管理・タスク管理にアクセスできます
               </Text>
             </div>
             <Group>
-              <Button variant="light" size="sm" leftSection={<IconUsers size={16} />} onClick={() => setShowMemberModal(true)}>
-                メンバー変更
+              <Button 
+                variant="light" 
+                size="sm" 
+                leftSection={<IconUsers size={16} />} 
+                onClick={() => handleMenuItemClick('members')}
+              >
+                メンバー管理
               </Button>
-              <Button variant="light" size="sm" leftSection={<IconCalendar size={16} />}>
-                スケジュール
-              </Button>
-              <Button size="sm" leftSection={<IconPlus size={16} />} onClick={handleTaskAdd}>
-                タスク追加
+              <Button 
+                size="sm" 
+                leftSection={<IconChecklist size={16} />} 
+                onClick={() => handleMenuItemClick('tasks')}
+              >
+                タスク管理
               </Button>
             </Group>
           </Group>
 
-          {/* メンバー情報 */}
-          <Group justify="space-between" align="center" style={{ 
-            padding: '12px 16px',
-            backgroundColor: '#f8f9fa',
-            borderRadius: '8px',
-            border: '1px solid #e9ecef'
-          }}>
-            <Group gap="xs" align="center">
-              <IconUsers size={18} color="#495057" />
-              <Text size="sm" fw={600} c="dark">プロジェクトメンバー ({members.length}名)</Text>
-            </Group>
-            <Group gap="xs">
-              {members.slice(0, 6).map((member) => (
-                <Badge key={member.id} size="sm" variant="light" color={
-                  member.role === 'admin' ? 'blue' : 
-                  member.role === 'editor' ? 'green' : 'gray'
-                }>
-                  {member.name}
-                </Badge>
-              ))}
-              {members.length > 6 && (
-                <Badge size="sm" variant="outline" color="gray">
-                  +{members.length - 6}
-                </Badge>
-              )}
-            </Group>
-          </Group>
-
-          {/* タスク統計 */}
+          {/* メンバー・タスク統計概要 */}
           <Group justify="space-between">
             <Group gap="md">
               <div style={{ textAlign: 'center' }}>
-                <Text size="xl" fw={700} c="blue">{tasks.filter(t => t.status === 'completed').length}</Text>
-                <Text size="xs" c="dimmed">完了</Text>
+                <Text size="xl" fw={700} c="blue">{members.length}</Text>
+                <Text size="xs" c="dimmed">メンバー</Text>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <Text size="xl" fw={700} c="green">{tasks.filter(t => t.status === 'completed').length}</Text>
+                <Text size="xs" c="dimmed">完了タスク</Text>
               </div>
               <div style={{ textAlign: 'center' }}>
                 <Text size="xl" fw={700} c="yellow">{tasks.filter(t => t.status === 'in_progress').length}</Text>
@@ -587,134 +598,59 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
               </div>
             </Group>
             <Text size="sm" c="dimmed">
-              進捗: {Math.round((tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length))}%
+              全体進捗: {Math.round((tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length))}%
             </Text>
-          </Group>
-
-          {/* 今日のタスク */}
-          <div>
-            <Group gap="sm" mb="sm">
-              <IconClock size={18} color="#fd7e14" />
-              <Text fw={600} size="sm">今日の予定タスク</Text>
-            </Group>
-            <Grid>
-              {tasks.filter(task => task.status !== 'completed').slice(0, 2).map((task) => (
-                <Grid.Col key={task.id} span={6}>
-                  <Card withBorder p="md" radius="md" style={{ 
-                    borderLeft: `4px solid var(--mantine-color-${getPriorityColor(task.priority)}-6)`,
-                    height: '100%',
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => handleTaskEdit(task)}>
-                    <Stack gap="xs">
-                      <Group justify="space-between" align="flex-start">
-                        <Group gap="xs" align="center">
-                          {getCategoryIcon(task.category)}
-                          <Text fw={600} size="sm" lineClamp={1}>{task.title}</Text>
-                        </Group>
-                        <Badge size="xs" color={getTaskStatusColor(task.status)} variant="light">
-                          {getTaskStatusLabel(task.status)}
-                        </Badge>
-                      </Group>
-                      <Text size="xs" c="dimmed" lineClamp={2}>{task.description}</Text>
-                      <Group justify="space-between" align="center">
-                        <Group gap="xs">
-                          <Text size="xs" c="dimmed">担当:</Text>
-                          <Text size="xs" fw={500}>{task.assignee}</Text>
-                        </Group>
-                        <Group gap="xs" align="center">
-                          <IconCalendar size={12} color="gray" />
-                          <Text size="xs" c="dimmed">{task.dueDate}</Text>
-                        </Group>
-                      </Group>
-                      {task.status === 'in_progress' && (
-                        <div>
-                          <Text size="xs" c="dimmed" mb={4}>進捗: {task.progress}%</Text>
-                          <div style={{
-                            width: '100%',
-                            height: '4px',
-                            backgroundColor: '#e9ecef',
-                            borderRadius: '2px',
-                            overflow: 'hidden'
-                          }}>
-                            <div style={{
-                              width: `${task.progress}%`,
-                              height: '100%',
-                              backgroundColor: 'var(--mantine-color-blue-6)',
-                              transition: 'width 0.3s ease'
-                            }} />
-                          </div>
-                        </div>
-                      )}
-                    </Stack>
-                  </Card>
-                </Grid.Col>
-              ))}
-            </Grid>
-          </div>
-
-          {/* 全タスク表示リンク */}
-          <Group justify="center">
-            <Button variant="subtle" size="sm" leftSection={<IconList size={16} />}>
-              全タスクを表示 ({tasks.length}件)
-            </Button>
           </Group>
         </Stack>
       </Paper>
 
-      {/* 座標・地番メニュー */}
+      {/* 座標・地番メニュー概要 - サイドメニューで詳細管理 */}
       <Paper shadow="sm" p={20} mb={30} withBorder>
         <Stack gap="md">
-          <Title order={3}>座標・地番メニュー</Title>
-          <Text size="sm" c="dimmed">
-            プロジェクトの座標・地番データを編集・管理できます
-          </Text>
+          <Group justify="space-between" align="center">
+            <div>
+              <Title order={3}>座標・地番メニュー</Title>
+              <Text size="sm" c="dimmed">
+                左メニューから座標管理・地番管理にアクセスできます
+              </Text>
+            </div>
+            <Group>
+              <Button 
+                variant="light" 
+                color="orange"
+                leftSection={<IconMapPins size={16} />}
+                onClick={() => handleMenuItemClick('coordinates')}
+              >
+                座標管理
+              </Button>
+              <Button 
+                variant="light" 
+                color="teal"
+                leftSection={<IconMap2 size={16} />}
+                onClick={() => handleMenuItemClick('lots')}
+              >
+                地番管理
+              </Button>
+            </Group>
+          </Group>
           
-          <Grid>
-            <Grid.Col span={6}>
-              <Card withBorder p="lg" radius="md" style={{ height: '100%' }}>
-                <Stack align="center" gap="md">
-                  <IconMapPins size={48} color="#40c057" />
-                  <div style={{ textAlign: 'center' }}>
-                    <Text fw={600} size="lg">座標編集</Text>
-                    <Text size="sm" c="dimmed" mt={4}>
-                      測量基準点・境界点を管理します
-                    </Text>
-                  </div>
-                  <Button 
-                    fullWidth 
-                    color="green"
-                    onClick={() => onEditMode('coordinate')}
-                    leftSection={<IconMapPins size={16} />}
-                  >
-                    座標編集を開始
-                  </Button>
-                </Stack>
-              </Card>
-            </Grid.Col>
-            
-            <Grid.Col span={6}>
-              <Card withBorder p="lg" radius="md" style={{ height: '100%' }}>
-                <Stack align="center" gap="md">
-                  <IconMap2 size={48} color="#fd7e14" />
-                  <div style={{ textAlign: 'center' }}>
-                    <Text fw={600} size="lg">地番編集</Text>
-                    <Text size="sm" c="dimmed" mt={4}>
-                      土地の地番・地目・面積を管理します
-                    </Text>
-                  </div>
-                  <Button 
-                    fullWidth 
-                    color="orange"
-                    onClick={() => onEditMode('lot')}
-                    leftSection={<IconMap2 size={16} />}
-                  >
-                    地番編集を開始
-                  </Button>
-                </Stack>
-              </Card>
-            </Grid.Col>
-          </Grid>
+          {/* データ統計概要 */}
+          <Group justify="space-between">
+            <Group gap="md">
+              <div style={{ textAlign: 'center' }}>
+                <Text size="xl" fw={700} c="orange">{coordinateData.length}</Text>
+                <Text size="xs" c="dimmed">座標点</Text>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <Text size="xl" fw={700} c="teal">{lotData.length}</Text>
+                <Text size="xs" c="dimmed">地番</Text>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <Text size="xl" fw={700} c="gray">{coordinateData.filter(c => c.status === '検査済み').length}</Text>
+                <Text size="xs" c="dimmed">検査済み</Text>
+              </div>
+            </Group>
+          </Group>
         </Stack>
       </Paper>
 
@@ -1060,6 +996,22 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
 
         </Container>
       </div>
+      
+      {/* メニューボタン - 最上位レベルで配置 */}
+      <MenuToggleButton onClick={() => setSideMenuOpened(true)} />
+      
+      {/* サイドメニュー - 最上位レベルで配置 */}
+      <SideMenu
+        opened={sideMenuOpened}
+        onClose={() => setSideMenuOpened(false)}
+        onMenuItemClick={handleMenuItemClick}
+        onCoordinateEdit={handleCoordinateMode}
+        onLotEdit={handleLotMode}
+        taskCount={tasks.length}
+        memberCount={members.length}
+        coordinateCount={coordinateData.length}
+        lotCount={lotData.length}
+      />
       
       {/* 右側のビューワー */}
       <CoordinateLotViewer 

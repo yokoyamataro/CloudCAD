@@ -13,11 +13,13 @@ export interface ProjectTemplate {
   name: string;
   description: string;
   image: string;
-  category: 'urban' | 'rural' | 'industrial' | 'residential';
+  category: 'urban' | 'rural' | 'industrial' | 'residential' | 'commercial' | 'suburban';
   features: string[];
   defaultSettings: {
     coordinateSystem: string;
     planeRectangularZone: string;
+    scale: string;
+    units: string;
   };
 }
 
@@ -78,6 +80,7 @@ export interface Project {
   templateId: string;
   template: ProjectTemplate;
   location: {
+    address: string;
     prefecture: string;
     city: string;
     coordinates?: {
@@ -88,6 +91,8 @@ export interface Project {
   settings: {
     coordinateSystem: string;
     planeRectangularZone: string;
+    scale: string;
+    units: string;
   };
   cadData: CADData[];
   coordinateData: CoordinateData[];

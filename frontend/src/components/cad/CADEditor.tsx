@@ -17,7 +17,6 @@ import {
   Checkbox,
   Modal,
   Textarea,
-  Tabs,
   Table,
   TextInput
 } from '@mantine/core';
@@ -58,7 +57,7 @@ import { P21Exporter } from '../../modules/sxf/P21Exporter';
 import { SXFParser } from '../../modules/sxf/SXFParser';
 import { SXFExporter } from '../../modules/sxf/SXFExporter';
 // import { SXFConverter } from '../../modules/sxf/SXFConverter'; // 一時的に無効化
-import type { CADElement, CADPage, MultiPageLayout, PaperSize, PaperSettings, CADLayer } from '../../types/cad';
+import type { CADElement, PaperSize, PaperSettings, CADLayer } from '../../types/cad';
 
 interface CADPoint {
   x: number;
@@ -72,7 +71,6 @@ interface CADEditorProps {
   onClose: () => void;
   initialData?: CADElement[];
   onSave?: (data: CADData) => void;
-  initialTab?: 'cad' | 'coordinate' | 'lot';
 }
 
 interface CADData {
@@ -98,8 +96,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   projectId,
   onClose,
   initialData = [],
-  onSave,
-  initialTab = 'cad'
+  onSave
 }) => {
   console.log('CADEditor コンポーネントが読み込まれました:', { projectId });
   // 用紙サイズ定義
@@ -116,34 +113,22 @@ export const CADEditor: React.FC<CADEditorProps> = ({
 
   // CAD状態管理
   const [tool, setTool] = useState<string>('pointer');
-  const [zoom, setZoom] = useState(0.5); // マルチページ表示のため初期ズームを小さく
+  const [zoom, setZoom] = useState(2.0); // 200%倍率で開始
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [elements, setElements] = useState<CADElement[]>(initialData);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   
-  // マルチページ管理
-  const [pages, setPages] = useState<CADPage[]>([
-    {
-      id: 'page-1',
-      name: 'ページ 1',
-      elements: initialData,
-      paperSettings: {
-        size: paperSizes.find(p => p.id === 'A3')!,
-        orientation: 'landscape',
-        margin: 10,
-        scale: '1:500',
-        showBorder: true,
-        coordinateSystem: 9
-      },
-      position: { x: 0, y: 0 },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ]);
-  const [currentPageId, setCurrentPageId] = useState<string>('page-1');
+  // 単一ページの用紙設定
+  const [paperSettings, setPaperSettings] = useState<PaperSettings>({
+    size: paperSizes.find(p => p.id === 'A3')!,
+    orientation: 'landscape',
+    margin: 10,
+    scale: '1:500',
+    showBorder: true,
+    coordinateSystem: 9
+  });
   
   // タブ管理
-  const [activeTab, setActiveTab] = useState<string>(initialTab);
   
   // 座標データ管理
   const [coordinateData, setCoordinateData] = useState([
@@ -239,12 +224,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       default: return 'gray';
     }
   };
-  const [multiPageLayout] = useState<MultiPageLayout>({
-    columns: 2,
-    rows: 2,
-    pageSpacing: 50,
-    padding: 20
-  });
   const [showGrid, setShowGrid] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [gridSize] = useState(10);
@@ -264,16 +243,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   const [commentText, setCommentText] = useState('');
   const [commentPosition, setCommentPosition] = useState<{x: number, y: number} | null>(null);
   const [showCommentInput, setShowCommentInput] = useState(false);
-  
-  // 用紙設定
-  const [paperSettings, setPaperSettings] = useState<PaperSettings>({
-    size: paperSizes.find(p => p.id === 'A3')!,
-    orientation: 'landscape',
-    margin: 10,
-    scale: '1:500',
-    showBorder: true,
-    coordinateSystem: 9 // 東京都
-  });
   const [showPaperModal, setShowPaperModal] = useState(false);
   // const [customPaperSize, setCustomPaperSize] = useState({ width: 400, height: 300 });
   
@@ -311,82 +280,23 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   // Canvas参照
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // ページ管理関数
-
-  const addNewPage = useCallback(() => {
-    const newPageId = `page-${Date.now()}`;
-    
-    setPages(prev => {
-      const pageCount = prev.length;
-      const col = pageCount % multiPageLayout.columns;
-      const row = Math.floor(pageCount / multiPageLayout.columns);
-      
-      const newPage: CADPage = {
-        id: newPageId,
-        name: `ページ ${prev.length + 1}`,
-        elements: [],
-        paperSettings: {
-          size: paperSizes.find(p => p.id === 'A3')!,
-          orientation: 'landscape',
-          margin: 10,
-          scale: '1:500',
-          showBorder: true,
-          coordinateSystem: 9
-        },
-        position: {
-          x: col * (420 + multiPageLayout.pageSpacing), // A3横幅 + 間隔
-          y: row * (297 + multiPageLayout.pageSpacing)  // A3縦幅 + 間隔
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      
-      return [...prev, newPage];
-    });
-    
-    setCurrentPageId(newPageId);
-  }, [paperSizes, multiPageLayout]);
-
-  const deletePage = useCallback((pageId: string) => {
-    if (pages.length <= 1) return;
-    
-    setPages(prev => prev.filter(page => page.id !== pageId));
-    
-    if (currentPageId === pageId) {
-      const remainingPages = pages.filter(page => page.id !== pageId);
-      setCurrentPageId(remainingPages[0]?.id || pages[0]?.id);
-    }
-  }, [pages, currentPageId]);
-
-  const getCurrentPage = useCallback(() => {
-    return pages.find(page => page.id === currentPageId);
-  }, [pages, currentPageId]);
-
-  const updateCurrentPage = useCallback((updates: Partial<CADPage>) => {
-    setPages(prev => prev.map(page => 
-      page.id === currentPageId 
-        ? { ...page, ...updates, updatedAt: new Date().toISOString() }
-        : page
-    ));
-  }, [currentPageId]);
-
-  // ページの境界を計算する関数（他の関数より前に定義）
-  const getPageBounds = useCallback((page: CADPage) => {
-    const { width, height } = page.paperSettings.size;
-    const actualWidth = page.paperSettings.orientation === 'landscape' 
+  // 単一ページの境界を計算する関数
+  const getPageBounds = useCallback(() => {
+    const { width, height } = paperSettings.size;
+    const actualWidth = paperSettings.orientation === 'landscape' 
       ? Math.max(width, height) : Math.min(width, height);
-    const actualHeight = page.paperSettings.orientation === 'landscape' 
+    const actualHeight = paperSettings.orientation === 'landscape' 
       ? Math.min(width, height) : Math.max(width, height);
     
     return {
-      left: page.position.x,
-      top: page.position.y,
-      right: page.position.x + actualWidth,
-      bottom: page.position.y + actualHeight,
+      left: 0,
+      top: 0,
+      right: actualWidth,
+      bottom: actualHeight,
       width: actualWidth,
       height: actualHeight
     };
-  }, []);
+  }, [paperSettings]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentPath, setCurrentPath] = useState<CADPoint[]>([]);
   const [isPanning, setIsPanning] = useState(false);
@@ -613,144 +523,40 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     return { x: worldX, y: worldY };
   }, [zoom, pan, snapToGrid, gridSize, showGrid, snapToObjects, findSnapPoint]);
   
-  // マルチページ描画関数
-  const drawMultiplePages = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
-    pages.forEach(page => {
-      const bounds = getPageBounds(page);
-      const screenBounds = {
-        left: bounds.left * zoom + pan.x,
-        top: bounds.top * zoom + pan.y,
-        right: bounds.right * zoom + pan.x,
-        bottom: bounds.bottom * zoom + pan.y
-      };
-      
-      // ページの境界をチェック（表示領域内にあるかどうか）
-      if (screenBounds.right < 0 || screenBounds.left > canvas.width ||
-          screenBounds.bottom < 0 || screenBounds.top > canvas.height) {
-        return; // 表示領域外なのでスキップ
-      }
-      
-      // 用紙の背景を描画
-      ctx.fillStyle = page.id === currentPageId ? '#ffffff' : '#f8f9fa';
-      ctx.fillRect(screenBounds.left, screenBounds.top, 
-                   (bounds.width * zoom), (bounds.height * zoom));
-      
-      // 用紙の枠線を描画
-      ctx.strokeStyle = page.id === currentPageId ? '#0066cc' : '#dee2e6';
-      ctx.lineWidth = page.id === currentPageId ? 2 : 1;
-      ctx.strokeRect(screenBounds.left, screenBounds.top, 
-                     (bounds.width * zoom), (bounds.height * zoom));
-      
-      // ページ名を描画
-      ctx.fillStyle = '#6c757d';
-      ctx.font = '12px Arial';
-      ctx.fillText(page.name, screenBounds.left + 10, screenBounds.top - 5);
-      
-      // ページの要素を描画
-      drawPageElements(ctx, page);
-    });
-  }, [pages, getPageBounds, zoom, pan, currentPageId]);
-
-  const drawPageElements = useCallback((ctx: CanvasRenderingContext2D, page: CADPage | null) => {
-    if (!page) return;
-    
-    const bounds = getPageBounds(page);
-    
-    // ページの座標系にクリッピング
-    ctx.save();
+  // 単一ページ描画関数
+  const drawSinglePage = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
+    const bounds = getPageBounds();
     const screenBounds = {
       left: bounds.left * zoom + pan.x,
       top: bounds.top * zoom + pan.y,
-      width: bounds.width * zoom,
-      height: bounds.height * zoom
-    };
-    ctx.beginPath();
-    ctx.rect(screenBounds.left, screenBounds.top, screenBounds.width, screenBounds.height);
-    ctx.clip();
-    
-    // 要素を描画（ページローカル座標系）
-    const elementsToRender = page.id === currentPageId ? elements : page.elements;
-    
-    // デバッグ：要素数をコンソールに出力
-    if (elementsToRender.length > 0) {
-      console.log(`ページ ${page.name}(${page.id}): ${elementsToRender.length}個の要素を描画中`, elementsToRender);
-    }
-    
-    elementsToRender.forEach(element => {
-      const layer = layers.find(l => l.id === element.layerId);
-      if (!layer || !layer.visible) return;
-      
-      // 要素をページ座標系に変換して描画
-      drawElementInPage(ctx, element, page, layer);
-    });
-    
-    ctx.restore();
-  }, [getPageBounds, zoom, pan, layers, currentPageId, elements]);
-
-  const drawElementInPage = useCallback((ctx: CanvasRenderingContext2D, element: CADElement, page: CADPage, layer: CADLayer) => {
-    const pageBounds = getPageBounds(page);
-    
-    // ページローカル座標をスクリーン座標に変換
-    const pageToScreen = (x: number, y: number) => {
-      return {
-        x: (pageBounds.left + x) * zoom + pan.x,
-        y: (pageBounds.top + y) * zoom + pan.y
-      };
+      right: bounds.right * zoom + pan.x,
+      bottom: bounds.bottom * zoom + pan.y
     };
     
-    // 描画スタイル設定
-    ctx.strokeStyle = element.properties.stroke;
-    ctx.lineWidth = Math.max(1, Math.min(4, (element.properties.strokeWidth || 1) / Math.max(1, zoom / 2)));
-    ctx.fillStyle = element.properties.fill || 'transparent';
+    // 用紙の背景を描画
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(screenBounds.left, screenBounds.top, 
+                 (bounds.width * zoom), (bounds.height * zoom));
     
-    // 要素タイプ別の描画
-    switch (element.type) {
-      case 'line':
-        if (element.points.length >= 2) {
-          ctx.beginPath();
-          const startScreen = pageToScreen(element.points[0].x, element.points[0].y);
-          ctx.moveTo(startScreen.x, startScreen.y);
-          
-          for (let i = 1; i < element.points.length; i++) {
-            const pointScreen = pageToScreen(element.points[i].x, element.points[i].y);
-            ctx.lineTo(pointScreen.x, pointScreen.y);
-          }
-          ctx.stroke();
-        }
-        break;
-        
-      case 'circle':
-        if (element.points.length >= 2) {
-          const centerScreen = pageToScreen(element.points[0].x, element.points[0].y);
-          const radiusScreen = pageToScreen(element.points[1].x, element.points[1].y);
-          const radius = Math.sqrt(
-            Math.pow(radiusScreen.x - centerScreen.x, 2) + 
-            Math.pow(radiusScreen.y - centerScreen.y, 2)
-          );
-          
-          ctx.beginPath();
-          ctx.arc(centerScreen.x, centerScreen.y, radius, 0, 2 * Math.PI);
-          ctx.stroke();
-        }
-        break;
-        
-      case 'text':
-        if (element.points.length >= 1) {
-          const textScreen = pageToScreen(element.points[0].x, element.points[0].y);
-          ctx.fillStyle = element.properties.stroke;
-          ctx.font = `${(element.properties.fontSize || 12) * zoom}px Arial`;
-          ctx.fillText(element.properties.text || '', textScreen.x, textScreen.y);
-        }
-        break;
-        
-      // 他の要素タイプも同様に実装...
+    // 用紙の枠線を描画
+    if (paperSettings.showBorder) {
+      ctx.strokeStyle = '#0066cc';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(screenBounds.left, screenBounds.top, 
+                     (bounds.width * zoom), (bounds.height * zoom));
     }
-  }, [getPageBounds, zoom, pan]);
+    
+    // 要素を描画
+    drawElements(ctx);
+  }, [getPageBounds, zoom, pan, paperSettings.showBorder]);
 
-  const drawPageGrid = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, page: CADPage) => {
+
+
+  // 単一ページ用のグリッド描画関数
+  const drawPageGrid = useCallback((ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     if (!showGrid) return;
     
-    const bounds = getPageBounds(page);
+    const bounds = getPageBounds();
     const screenBounds = {
       left: bounds.left * zoom + pan.x,
       top: bounds.top * zoom + pan.y,
@@ -1261,16 +1067,11 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     ctx.fillStyle = '#e9ecef';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // すべてのページを描画
-    drawMultiplePages(ctx, canvas);
+    // 単一ページを描画
+    drawSinglePage(ctx, canvas);
     
-    // 現在のページのグリッドを描画
-    const currentPage = getCurrentPage();
-    if (currentPage) {
-      drawPageGrid(ctx, canvas, currentPage);
-    }
-    
-    // 要素は各ページ内で描画済み
+    // グリッドを描画
+    drawPageGrid(ctx, canvas);
     
     // クリック方式の線描画プレビュー
     if (isLineDrawing && linePoints.length > 0) {
@@ -1471,44 +1272,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     setShowCommentInput(false);
   };
 
-  // マルチページ管理機能
 
-  const getPageAtPosition = useCallback((x: number, y: number) => {
-    for (const page of pages) {
-      const bounds = getPageBounds(page);
-      if (x >= bounds.left && x <= bounds.right && 
-          y >= bounds.top && y <= bounds.bottom) {
-        return page;
-      }
-    }
-    return null;
-  }, [pages, getPageBounds]);
-
-  // 現在のページの要素を更新（ページ切り替え時のみ）
-  useEffect(() => {
-    const currentPage = pages.find(page => page.id === currentPageId);
-    if (currentPage) {
-      // ページ切り替え時は即座に状態を更新
-      console.log(`ページ ${currentPageId} に切り替え: ${currentPage.elements.length}個の要素を読み込み`);
-      setElements(currentPage.elements);
-      setPaperSettings(currentPage.paperSettings);
-    }
-  }, [currentPageId, pages]);
-
-  // 要素が変更されたときに現在のページを更新（useRefで前回値と比較）
-  const prevElementsRef = useRef<CADElement[]>([]);
-  useEffect(() => {
-    // 要素が実際に変更された場合のみ更新
-    if (JSON.stringify(elements) !== JSON.stringify(prevElementsRef.current)) {
-      console.log(`ページ ${currentPageId} に ${elements.length}個の要素を保存`, elements);
-      prevElementsRef.current = elements;
-      setPages(prev => prev.map(page => 
-        page.id === currentPageId 
-          ? { ...page, elements, updatedAt: new Date().toISOString() }
-          : page
-      ));
-    }
-  }, [elements, currentPageId]);
 
   // SXF/P21インポート・エクスポート機能
   const handleImportSXF = useCallback(async (file: File) => {
@@ -1648,27 +1412,8 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
     
-    // スクリーン座標からワールド座標に変換
-    const worldX = (screenX - pan.x) / zoom;
-    const worldY = (screenY - pan.y) / zoom;
-    
-    // クリックされたページを確認
-    const clickedPage = getPageAtPosition(worldX, worldY);
-    if (clickedPage && clickedPage.id !== currentPageId) {
-      setCurrentPageId(clickedPage.id);
-    }
-    
-    // ページローカル座標に変換
-    if (clickedPage) {
-      const pageBounds = getPageBounds(clickedPage);
-      const pageLocalX = worldX - pageBounds.left;
-      const pageLocalY = worldY - pageBounds.top;
-      
-      // ページ境界内でのスナップ処理
-      return screenToWorld(screenX, screenY);
-    }
-    
-    return { x: worldX, y: worldY };
+    // スクリーン座標からワールド座標に変換（単一ページ）
+    return screenToWorld(screenX, screenY);
   };
   
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1825,6 +1570,39 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  // 初期化時に用紙を中央に配置
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    // 少し遅延させてキャンバスサイズが確定してから実行
+    const timer = setTimeout(() => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const currentSize = paperSizes.find(p => p.id === paperSettings.size.id) || paperSizes[0];
+        const paperWidth = paperSettings.orientation === 'landscape' 
+          ? Math.max(currentSize.width, currentSize.height)
+          : Math.min(currentSize.width, currentSize.height);
+        const paperHeight = paperSettings.orientation === 'landscape' 
+          ? Math.min(currentSize.width, currentSize.height)
+          : Math.max(currentSize.width, currentSize.height);
+        
+        // 用紙を画面中央に配置するパン値を計算（200%ズーム時）
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        const paperCenterX = (paperWidth * 2.0) / 2; // zoom = 2.0
+        const paperCenterY = (paperHeight * 2.0) / 2; // zoom = 2.0
+        
+        setPan({ 
+          x: centerX - paperCenterX, 
+          y: centerY - paperCenterY 
+        });
+      }
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, [paperSettings]); // paperSettingsが変更されたときも再実行
 
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
     // パン終了
@@ -2771,9 +2549,9 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   }, [elements, layers, paperSettings]);
 
   return (
-    <Box h="100vh" style={{ display: 'flex', flexDirection: 'column' }}>
+    <Box h="100vh" w="100vw" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* ツールバー */}
-      <Paper shadow="sm" p="sm" withBorder>
+      <Paper shadow="sm" p="sm" withBorder style={{ width: '100%' }}>
         <Group justify="space-between">
           <Group>
             
@@ -3156,56 +2934,44 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         </Group>
       </Paper>
       
-      {/* タブ構造 */}
-      <Tabs value={activeTab} onChange={setActiveTab} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <Tabs.List>
-          <Tabs.Tab value="cad" leftSection={<IconSettings size={16} />}>
-            CAD編集
-          </Tabs.Tab>
-          <Tabs.Tab value="coordinate" leftSection={<IconMapPins size={16} />}>
-            座標編集
-          </Tabs.Tab>
-          <Tabs.Tab value="lot" leftSection={<IconNumbers size={16} />}>
-            地番編集
-          </Tabs.Tab>
-        </Tabs.List>
-
-        <Tabs.Panel value="cad" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      {/* CAD編集メインコンテンツ */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
           {/* ページ管理 */}
           <Paper shadow="sm" p="sm" mb="sm" withBorder>
             <Group gap="xs">
-              <Text size="sm" fw={600}>ページ管理:</Text>
-              <Tooltip label="新しいページを追加">
-                <ActionIcon variant="filled" color="green" onClick={addNewPage}>
-                  <IconPlus size={16} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="現在のページを削除">
-                <ActionIcon 
-                  variant="filled"
-                  color="red"
-                  onClick={() => deletePage(currentPageId)}
-                  disabled={pages.length <= 1}
-                >
-                  <IconMinus size={16} />
-                </ActionIcon>
-              </Tooltip>
+              <Text size="sm" fw={600}>用紙設定:</Text>
               <Select
-                data={pages.map(page => ({ value: page.id, label: page.name }))}
-                value={currentPageId}
-                onChange={(value) => value && setCurrentPageId(value)}
-                placeholder="ページ選択"
-                w={150}
+                data={paperSizes.map(size => ({ value: size.id, label: size.name }))}
+                value={paperSettings.size.id}
+                onChange={(value) => {
+                  const newSize = paperSizes.find(s => s.id === value);
+                  if (newSize) {
+                    setPaperSettings(prev => ({ ...prev, size: newSize }));
+                  }
+                }}
+                placeholder="用紙サイズ"
+                w={100}
                 size="xs"
               />
-              <Text size="xs" c="dimmed">
-                {pages.findIndex(p => p.id === currentPageId) + 1} / {pages.length}
-              </Text>
+              <Select
+                data={[
+                  { value: 'portrait', label: '縦' },
+                  { value: 'landscape', label: '横' }
+                ]}
+                value={paperSettings.orientation}
+                onChange={(value) => {
+                  if (value) {
+                    setPaperSettings(prev => ({ ...prev, orientation: value as 'portrait' | 'landscape' }));
+                  }
+                }}
+                w={60}
+                size="xs"
+              />
             </Group>
           </Paper>
           
           {/* CAD編集メインキャンバス */}
-          <Box style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <Box style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%' }}>
         <canvas
           ref={canvasRef}
           style={{
@@ -3649,144 +3415,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           </Group>
         </Stack>
       </Modal>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="coordinate" style={{ flex: 1, padding: '20px' }}>
-          {/* 座標編集パネル */}
-          <Stack>
-            <Group justify="space-between">
-              <Text size="lg" fw={600}>座標管理</Text>
-              <Button leftSection={<IconPlus size={16} />} onClick={handleAddCoordinate}>
-                座標点追加
-              </Button>
-            </Group>
-            
-            <Paper withBorder p="md">
-              <Stack gap="md">
-                <Group justify="space-between">
-                  <Text size="sm" c="dimmed">測量基準点・境界点の座標データを管理します</Text>
-                  <Group>
-                    <Button variant="light" size="sm">CSV インポート</Button>
-                    <Button variant="light" size="sm">CSV エクスポート</Button>
-                    <Button variant="light" size="sm">座標変換</Button>
-                  </Group>
-                </Group>
-                
-                {/* 座標一覧テーブル */}
-                <Table striped highlightOnHover withTableBorder>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>点名</Table.Th>
-                      <Table.Th>種類</Table.Th>
-                      <Table.Th>X座標 (m)</Table.Th>
-                      <Table.Th>Y座標 (m)</Table.Th>
-                      <Table.Th>標高 (m)</Table.Th>
-                      <Table.Th>精度</Table.Th>
-                      <Table.Th>測量者</Table.Th>
-                      <Table.Th>測量日</Table.Th>
-                      <Table.Th>操作</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {coordinateData.map((coord) => (
-                      <Table.Tr key={coord.id}>
-                        <Table.Td>
-                          <Text fw={600}>{coord.pointName}</Text>
-                          <Text size="xs" c="dimmed">{coord.description}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Badge color={getTypeBadgeColor(coord.type)} variant="light">
-                            {getTypeLabel(coord.type)}
-                          </Badge>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                            {coord.x?.toFixed(3)}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                            {coord.y?.toFixed(3)}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                            {coord.z?.toFixed(3)}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm">{coord.accuracy}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm">{coord.surveyor}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm">{coord.surveyDate}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Group gap="xs">
-                            <ActionIcon
-                              variant="light"
-                              color="blue"
-                              onClick={() => handleEditCoordinate(coord)}
-                            >
-                              <IconEdit size={16} />
-                            </ActionIcon>
-                            <ActionIcon
-                              variant="light"
-                              color="red"
-                              onClick={() => handleDeleteCoordinate(coord.id)}
-                            >
-                              <IconTrash size={16} />
-                            </ActionIcon>
-                          </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-                
-                <Group justify="center">
-                  <Text size="sm" c="dimmed">
-                    {coordinateData.length} 件の座標データが登録されています
-                  </Text>
-                </Group>
-              </Stack>
-            </Paper>
-          </Stack>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="lot" style={{ flex: 1, padding: '20px' }}>
-          {/* 地番編集パネル */}
-          <Stack>
-            <Group justify="space-between">
-              <Text size="lg" fw={600}>地番管理</Text>
-              <Button leftSection={<IconPlus size={16} />}>地番追加</Button>
-            </Group>
-            
-            <Paper withBorder p="md">
-              <Stack gap="md">
-                <Text size="sm" c="dimmed">土地の地番情報を管理します</Text>
-                
-                {/* 地番一覧 */}
-                <Box style={{ minHeight: '400px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Stack align="center" gap="md">
-                    <IconNumbers size={48} color="gray" />
-                    <Text c="dimmed">地番データはここに表示されます</Text>
-                    <Text size="sm" c="dimmed">地番、地目、面積などの情報を追加・編集できます</Text>
-                  </Stack>
-                </Box>
-                
-                <Group>
-                  <Button variant="light">地番台帳インポート</Button>
-                  <Button variant="light">地番台帳エクスポート</Button>
-                  <Button variant="light">面積計算</Button>
-                </Group>
-              </Stack>
-            </Paper>
-          </Stack>
-        </Tabs.Panel>
-      </Tabs>
       
       {/* 座標追加・編集モーダル */}
       <Modal
@@ -3795,135 +3423,64 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         title={editingCoordinate ? "座標点編集" : "座標点追加"}
         size="lg"
       >
-        <CoordinateForm
-          coordinate={editingCoordinate}
-          onSave={handleSaveCoordinate}
-          onCancel={() => setShowCoordinateModal(false)}
-        />
+        <Stack>
+          <TextInput
+            label="点名"
+            placeholder="座標点名を入力"
+            defaultValue={editingCoordinate?.pointName || ''}
+          />
+          <NumberInput
+            label="X座標 (メートル)"
+            placeholder="X座標を入力"
+            defaultValue={editingCoordinate?.x || 0}
+            decimalScale={3}
+            step={0.001}
+          />
+          <NumberInput
+            label="Y座標 (メートル)"
+            placeholder="Y座標を入力"
+            defaultValue={editingCoordinate?.y || 0}
+            decimalScale={3}
+            step={0.001}
+          />
+          <NumberInput
+            label="Z座標 (メートル)"
+            placeholder="Z座標を入力"
+            defaultValue={editingCoordinate?.z || 0}
+            decimalScale={3}
+            step={0.001}
+          />
+          <Select
+            label="座標種別"
+            defaultValue={editingCoordinate?.type || 'benchmark'}
+            data={[
+              { value: 'benchmark', label: '基準点' },
+              { value: 'control_point', label: '制御点' },
+              { value: 'boundary_point', label: '境界点' }
+            ]}
+          />
+          <Textarea
+            label="備考"
+            placeholder="備考を入力"
+            defaultValue={editingCoordinate?.description || ''}
+            minRows={2}
+          />
+          <Group justify="flex-end">
+            <Button variant="light" onClick={() => setShowCoordinateModal(false)}>
+              キャンセル
+            </Button>
+            <Button onClick={() => {
+              // Save coordinate logic would go here
+              setShowCoordinateModal(false);
+            }}>
+              保存
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
+      </div>
     </Box>
   );
 };
 
-// 座標入力フォームコンポーネント
-const CoordinateForm: React.FC<{
-  coordinate?: any;
-  onSave: (data: any) => void;
-  onCancel: () => void;
-}> = ({ coordinate, onSave, onCancel }) => {
-  const [formData, setFormData] = useState({
-    pointName: coordinate?.pointName || '',
-    type: coordinate?.type || 'boundary_point',
-    x: coordinate?.x?.toString() || '',
-    y: coordinate?.y?.toString() || '',
-    z: coordinate?.z?.toString() || '',
-    accuracy: coordinate?.accuracy || '±5mm',
-    description: coordinate?.description || '',
-    surveyor: coordinate?.surveyor || '',
-    coordinateSystem: coordinate?.coordinateSystem || 'JGD2011'
-  });
-  
-  const handleSubmit = () => {
-    const data = {
-      ...formData,
-      x: parseFloat(formData.x),
-      y: parseFloat(formData.y),
-      z: parseFloat(formData.z)
-    };
-    onSave(data);
-  };
-  
-  return (
-    <Stack gap="md">
-      <Group grow>
-        <TextInput
-          label="点名"
-          value={formData.pointName}
-          onChange={(e) => setFormData(prev => ({ ...prev, pointName: e.target.value }))}
-          required
-        />
-        <Select
-          label="種類"
-          value={formData.type}
-          onChange={(value) => setFormData(prev => ({ ...prev, type: value || 'boundary_point' }))}
-          data={[
-            { value: 'benchmark', label: '基準点' },
-            { value: 'control_point', label: '制御点' },
-            { value: 'boundary_point', label: '境界点' }
-          ]}
-          required
-        />
-      </Group>
-      
-      <Group grow>
-        <TextInput
-          label="X座標 (m)"
-          value={formData.x}
-          onChange={(e) => setFormData(prev => ({ ...prev, x: e.target.value }))}
-          required
-        />
-        <TextInput
-          label="Y座標 (m)"
-          value={formData.y}
-          onChange={(e) => setFormData(prev => ({ ...prev, y: e.target.value }))}
-          required
-        />
-        <TextInput
-          label="標高 (m)"
-          value={formData.z}
-          onChange={(e) => setFormData(prev => ({ ...prev, z: e.target.value }))}
-          required
-        />
-      </Group>
-      
-      <Group grow>
-        <Select
-          label="精度"
-          value={formData.accuracy}
-          onChange={(value) => setFormData(prev => ({ ...prev, accuracy: value || '±5mm' }))}
-          data={[
-            { value: '±1mm', label: '±1mm' },
-            { value: '±2mm', label: '±2mm' },
-            { value: '±3mm', label: '±3mm' },
-            { value: '±5mm', label: '±5mm' },
-            { value: '±10mm', label: '±10mm' }
-          ]}
-        />
-        <TextInput
-          label="測量者"
-          value={formData.surveyor}
-          onChange={(e) => setFormData(prev => ({ ...prev, surveyor: e.target.value }))}
-        />
-      </Group>
-      
-      <TextInput
-        label="説明"
-        value={formData.description}
-        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-      />
-      
-      <Select
-        label="座標系"
-        value={formData.coordinateSystem}
-        onChange={(value) => setFormData(prev => ({ ...prev, coordinateSystem: value || 'JGD2011' }))}
-        data={[
-          { value: 'JGD2000', label: 'JGD2000' },
-          { value: 'JGD2011', label: 'JGD2011' },
-          { value: 'Tokyo', label: '日本測地系' }
-        ]}
-      />
-      
-      <Group justify="flex-end">
-        <Button variant="light" onClick={onCancel}>
-          キャンセル
-        </Button>
-        <Button 
-          onClick={handleSubmit}
-          disabled={!formData.pointName || !formData.x || !formData.y || !formData.z}
-        >
-          {coordinate ? '更新' : '追加'}
-        </Button>
-      </Group>
-    </Stack>
-  );
-};
+export default CADEditor;
