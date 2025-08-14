@@ -50,14 +50,19 @@ import {
   IconNumbers,
   IconMapPins,
   IconEdit,
-  IconTrash
+  IconTrash,
+  IconFolderOpen,
+  IconFileImport,
+  IconFileExport,
+  IconDatabase
 } from '@tabler/icons-react';
-import { P21Parser } from '../../modules/sxf/P21Parser';
-import { P21Exporter } from '../../modules/sxf/P21Exporter';
-import { SXFParser } from '../../modules/sxf/SXFParser';
-import { SXFExporter } from '../../modules/sxf/SXFExporter';
+// import { P21Parser } from '../../modules/sxf/P21Parser';
+// import { P21Exporter } from '../../modules/sxf/P21Exporter';
+// import { SXFParser } from '../../modules/sxf/SXFParser';
+// import { SXFExporter } from '../../modules/sxf/SXFExporter';
 // import { SXFConverter } from '../../modules/sxf/SXFConverter'; // 一時的に無効化
-import type { CADElement, PaperSize, PaperSettings, CADLayer } from '../../types/cad';
+import { SXFParser, readSXFFileWithEncoding } from '../../utils/sxfParser';
+import type { CADElement, PaperSize, PaperSettings, CADLayer, CADLevel, CADCoordinateSystem } from '../../types/cad';
 
 interface CADPoint {
   x: number;
@@ -117,6 +122,68 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [elements, setElements] = useState<CADElement[]>(initialData);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  const [mouseCoords, setMouseCoords] = useState<{ x: number; y: number } | null>(null);
+  const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
+  const [editingElementProperties, setEditingElementProperties] = useState<CADElement | null>(null);
+  
+  // 現在の描画プロパティ
+  const [currentDrawingProperties, setCurrentDrawingProperties] = useState({
+    lineType: 'solid',
+    lineWidth: 0.35,
+    color: '#000000'
+  });
+  
+  // CADレベル管理
+  const [coordinateSystem, setCoordinateSystem] = useState<CADCoordinateSystem>({
+    paperLevel: {
+      id: 'paper',
+      name: '用紙レベル',
+      levelNumber: 0,  // 用紙レベルは0番
+      originX: 0,
+      originY: 0,
+      rotation: 0,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      description: '用紙座標系（1/1, 原点0,0, 回転0度）',
+      isActive: false
+    },
+    levels: [],
+    activeLevel: 'paper'
+  });
+  
+  // 線種定義
+  const lineTypes = [
+    { value: 'solid', label: '実線', pattern: [] },
+    { value: 'dashed', label: '破線', pattern: [5, 5] },
+    { value: 'dotted', label: '点線', pattern: [2, 3] },
+    { value: 'dashdot', label: '一点鎖線', pattern: [8, 3, 2, 3] },
+    { value: 'dashdotdot', label: '二点鎖線', pattern: [8, 3, 2, 3, 2, 3] }
+  ];
+  
+  // 線幅定義（mm単位）
+  const lineWidths = [
+    { value: 0.1, label: '0.1mm (極細)' },
+    { value: 0.25, label: '0.25mm (細線)' },
+    { value: 0.35, label: '0.35mm (標準)' },
+    { value: 0.5, label: '0.5mm (中線)' },
+    { value: 0.7, label: '0.7mm (太線)' },
+    { value: 1.0, label: '1.0mm (極太)' },
+    { value: 1.4, label: '1.4mm (特太)' }
+  ];
+  
+  // 色定義
+  const elementColors = [
+    { value: '#000000', label: '黒' },
+    { value: '#FF0000', label: '赤' },
+    { value: '#0000FF', label: '青' },
+    { value: '#00FF00', label: '緑' },
+    { value: '#FF00FF', label: 'マゼンタ' },
+    { value: '#00FFFF', label: 'シアン' },
+    { value: '#FFFF00', label: '黄' },
+    { value: '#808080', label: 'グレー' },
+    { value: '#800000', label: '暗赤' },
+    { value: '#000080', label: '暗青' }
+  ];
   
   // 単一ページの用紙設定
   const [paperSettings, setPaperSettings] = useState<PaperSettings>({
@@ -310,11 +377,22 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   // 座標変換関数：ワールド座標からスクリーン座標へ
   // ワールド座標は用紙上の絶対座標（ピクセル単位）
   const worldToScreen = useCallback((worldX: number, worldY: number) => {
+    // 用紙左下原点座標系からスクリーン座標系に変換
+    // worldX(右方向) -> screenX(右向き), worldY(上方向) -> screenY(下向き、反転)
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    
+    // 用紙サイズを取得
+    const currentSize = paperSettings.size;
+    const paperHeight = paperSettings.orientation === 'landscape' 
+      ? Math.min(currentSize.width, currentSize.height)
+      : Math.max(currentSize.width, currentSize.height);
+    
     return {
-      x: worldX * zoom + pan.x,
-      y: worldY * zoom + pan.y
+      x: worldX * zoom + pan.x, // ワールドX(右方向) → スクリーンX
+      y: pan.y + (paperHeight - worldY) * zoom // 修正: pan.yは用紙上端、worldYを反転
     };
-  }, [zoom, pan]);
+  }, [zoom, pan, paperSettings]);
 
   // スナップポイントを検出する関数
   const findSnapPoint = useCallback((screenX: number, screenY: number) => {
@@ -322,9 +400,17 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       return null;
     }
 
+    // 新座標系に合わせて変換
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    
+    // CSS座標系を使用（DPR調整なし）
+    const rect = canvas.getBoundingClientRect();
+    const canvasHeight = rect.height;
+    
     const worldPos = {
-      x: (screenX - pan.x) / zoom,
-      y: (screenY - pan.y) / zoom
+      x: (screenX - pan.x) / zoom, // スクリーンX → ワールドX（右方向）
+      y: (pan.y - screenY) / zoom // スクリーンY → ワールドY（上方向）
     };
 
     let closestSnapPoint = null;
@@ -495,15 +581,74 @@ export const CADEditor: React.FC<CADEditorProps> = ({
 
   // スクリーン座標からワールド座標への変換
   const screenToWorld = useCallback((screenX: number, screenY: number) => {
+    // 用紙左下を原点とする座標系に変換
+    // 右がX軸正方向、上がY軸正方向（標準的なCAD座標系）
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    
+    // CSS座標系を使用（DPR調整なし）
+    const rect = canvas.getBoundingClientRect();
+    const canvasHeight = rect.height;
+    
+    // 座標変換の定義を修正:
+    // pan.x = 用紙左端のスクリーンX座標 (worldX=0の時のscreenX)
+    // pan.y = 用紙上端のスクリーンY座標 (worldY=paperHeightの時のscreenY)
+    
+    // 1. スクリーンX → ワールドX（右方向）
     const worldX = (screenX - pan.x) / zoom;
-    const worldY = (screenY - pan.y) / zoom;
+    
+    // 2. スクリーンY → ワールドY（上方向、Y軸反転）
+    // 用紙サイズを取得
+    const currentSize = paperSettings.size;
+    const paperHeight = paperSettings.orientation === 'landscape' 
+      ? Math.min(currentSize.width, currentSize.height)
+      : Math.max(currentSize.width, currentSize.height);
+    
+    // pan.yを用紙上端のスクリーンY座標として定義
+    // worldY = paperHeight - (screenY - pan.y) / zoom
+    const worldY = paperHeight - (screenY - pan.y) / zoom;
+    
+    // 常に座標変換の詳細をログ出力（デバッグ用）
+    if (Math.abs(worldX) < 5 && worldY >= -5 && worldY <= 5) { // 原点付近の時
+      console.log('=== 詳細座標変換デバッグ ===');
+      console.log(`入力: スクリーン(${screenX}, ${screenY}), CSS canvas高さ: ${canvasHeight}`);
+      console.log(`パン: (${pan.x}, ${pan.y}), ズーム: ${zoom}, 用紙高さ: ${paperHeight}`);
+      console.log(`計算過程:`);
+      console.log(`  worldX = (${screenX} - ${pan.x}) / ${zoom} = ${((screenX - pan.x) / zoom).toFixed(4)}`);
+      console.log(`  worldY = ${paperHeight} - (${screenY} - ${pan.y}) / ${zoom} = ${(paperHeight - (screenY - pan.y) / zoom).toFixed(4)}`);
+      console.log(`結果: ワールド(${worldX}, ${worldY})`);
+      
+      // 逆変換テスト
+      const testBack = worldToScreen(worldX, worldY);
+      console.log(`逆変換テスト: ワールド(${worldX}, ${worldY}) → スクリーン(${testBack.x.toFixed(2)}, ${testBack.y.toFixed(2)})`);
+      console.log(`逆変換誤差: (${Math.abs(testBack.x - screenX).toFixed(4)}, ${Math.abs(testBack.y - screenY).toFixed(4)})`);
+      
+      // 原点テストと座標系の確認
+      const origin = worldToScreen(0, 0);
+      const backToOrigin = screenToWorld(origin.x, origin.y);
+      console.log(`原点テスト: (0,0) → スクリーン(${origin.x.toFixed(2)}, ${origin.y.toFixed(2)}) → ワールド(${backToOrigin.x.toFixed(6)}, ${backToOrigin.y.toFixed(6)})`);
+      
+      // 用紙右下角のテスト（仮定：用紙サイズ297x210mm）
+      const paperCorner = worldToScreen(297, 210);
+      const backToCorner = screenToWorld(paperCorner.x, paperCorner.y);
+      console.log(`用紙右上テスト: (297,210) → スクリーン(${paperCorner.x.toFixed(2)}, ${paperCorner.y.toFixed(2)}) → ワールド(${backToCorner.x.toFixed(2)}, ${backToCorner.y.toFixed(2)})`);
+      
+      // Y軸の詳細確認
+      console.log(`Y座標詳細: paperBottomScreenY=${pan.y.toFixed(2)}, 現在screenY=${screenY}, 計算worldY=${worldY.toFixed(4)}`);
+      console.log('===========================');
+    }
 
     // オブジェクトスナップが有効な場合
     if (snapToObjects) {
       const snapPoint = findSnapPoint(screenX, screenY);
       if (snapPoint) {
         // スナップポイントが見つかった場合はそこにスナップ
-        return { x: snapPoint.x, y: snapPoint.y };
+        // スナップポイントも新座標系に変換
+        const rect = canvas.getBoundingClientRect();
+        const canvasHeight = rect.height;
+        const snapWorldX = (snapPoint.x - pan.x) / zoom;
+        const snapWorldY = (pan.y - snapPoint.y) / zoom;
+        return { x: snapWorldX, y: snapWorldY };
       }
       // オブジェクトスナップが有効だがスナップポイントが見つからない場合は
       // グリッドスナップやフリー配置も試す
@@ -665,6 +810,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     const paperOrigin = worldToScreen(0, 0);
     const paperBottomRight = worldToScreen(paperWidth, paperHeight);
     
+    // デバッグ: 用紙位置をログ出力
+    if (Math.random() < 0.01) { // 1%の確率でログ出力
+      console.log('=== 用紙描画位置デバッグ ===');
+      console.log(`パン: (${pan.x.toFixed(2)}, ${pan.y.toFixed(2)})`);
+      console.log(`ズーム: ${zoom.toFixed(4)}`);
+      console.log(`用紙原点(0,0)のスクリーン座標: (${paperOrigin.x.toFixed(2)}, ${paperOrigin.y.toFixed(2)})`);
+      console.log(`用紙サイズ: ${paperWidth} x ${paperHeight}`);
+      console.log('===========================');
+    }
+    
     const paperX = paperOrigin.x;
     const paperY = paperOrigin.y;
     const paperW = paperBottomRight.x - paperOrigin.x;
@@ -711,29 +866,67 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       const layer = layers.find(l => l.id === element.layerId);
       if (!layer || !layer.visible) return;
       
-      ctx.strokeStyle = element.properties.stroke;
-      // 高倍率時も線の太さを適切に保持（最小1ピクセル、最大4ピクセル）
-      const baseLineWidth = element.properties.strokeWidth || 1;
-      ctx.lineWidth = Math.max(1, Math.min(4, baseLineWidth / Math.max(1, zoom / 2)));
-      ctx.fillStyle = element.properties.fill || 'transparent';
+      // sxfAttributesから色を取得、fallbackで既存の仕組みを使用
+      const strokeColor = element.sxfAttributes?.color || element.style?.strokeColor || element.properties?.stroke || '#FF0000';
+      ctx.strokeStyle = strokeColor;
+      
+      // sxfAttributesから線幅を取得
+      const baseLineWidth = element.sxfAttributes?.lineWidth || element.style?.strokeWidth || element.properties?.strokeWidth || 1;
+      // ズームレベルに関係なく適切な線の太さを保持
+      // 大きな座標系でのズーム対応：最小1ピクセル、最大5ピクセル
+      if (zoom < 0.1) {
+        // 非常に小さなズーム（大きな座標系）の場合
+        ctx.lineWidth = Math.max(1, Math.min(5, baseLineWidth * 2));
+      } else {
+        // 通常のズーム範囲
+        ctx.lineWidth = Math.max(1, Math.min(4, baseLineWidth / Math.max(1, zoom / 2)));
+      }
+      
+      // 線種パターンを設定
+      const lineType = element.sxfAttributes?.lineType || 'solid';
+      const lineTypeDefinition = lineTypes.find(lt => lt.value === lineType);
+      if (lineTypeDefinition && lineTypeDefinition.pattern.length > 0) {
+        // 破線パターンをズームに応じてスケール
+        const scaledPattern = lineTypeDefinition.pattern.map(p => p * Math.max(1, zoom));
+        ctx.setLineDash(scaledPattern);
+      } else {
+        ctx.setLineDash([]); // 実線
+      }
+      
+      ctx.fillStyle = element.style?.fillColor || 'transparent';
       
       switch (element.type) {
         case 'line':
-          if (element.points.length >= 2) {
+          if (element.points && element.points?.length >= 2) {
             ctx.beginPath();
             const startScreen = worldToScreen(element.points[0].x, element.points[0].y);
             ctx.moveTo(startScreen.x, startScreen.y);
             
-            for (let i = 1; i < element.points.length; i++) {
+            let hasValidPoints = false;
+            for (let i = 1; i < element.points?.length; i++) {
               const pointScreen = worldToScreen(element.points[i].x, element.points[i].y);
-              ctx.lineTo(pointScreen.x, pointScreen.y);
+              // 有効な座標かチェック（無限大やNaNを除外）
+              if (isFinite(pointScreen.x) && isFinite(pointScreen.y)) {
+                ctx.lineTo(pointScreen.x, pointScreen.y);
+                hasValidPoints = true;
+              }
             }
-            ctx.stroke();
+            
+            // 有効なポイントがある場合のみ描画
+            if (hasValidPoints) {
+              ctx.stroke();
+              
+              // 極小ズーム時のデバッグログ
+              if (zoom < 0.01 && Math.random() < 0.01) { // 1%の確率でログ出力
+                console.log(`線描画: zoom=${zoom.toFixed(6)}, 線幅=${ctx.lineWidth}, 開始点=(${startScreen.x.toFixed(1)}, ${startScreen.y.toFixed(1)})`);
+              }
+            }
           }
           break;
           
         case 'circle':
-          if (element.points.length >= 2) {
+          // 新しい形式（points使用）をサポート
+          if (element.points?.length >= 2) {
             const center = element.points[0];
             const edge = element.points[1];
             const centerScreen = worldToScreen(center.x, center.y);
@@ -746,22 +939,33 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             ctx.beginPath();
             ctx.arc(centerScreen.x, centerScreen.y, radius, 0, 2 * Math.PI);
             ctx.stroke();
-            if (element.properties.fill) ctx.fill();
+            if (element.style?.fillColor) ctx.fill();
+          }
+          // 古い形式（center/radius使用）もサポート
+          else if ((element as any).center && (element as any).radius) {
+            const center = (element as any).center;
+            const radius = (element as any).radius;
+            const centerScreen = worldToScreen(center.x, center.y);
+            
+            ctx.beginPath();
+            ctx.arc(centerScreen.x, centerScreen.y, radius * zoom, 0, 2 * Math.PI);
+            ctx.stroke();
+            if (element.style?.fillColor) ctx.fill();
           }
           break;
           
         case 'point':
-          if (element.points.length >= 1) {
+          if (element.points?.length >= 1) {
             const point = element.points[0];
             const pointScreen = worldToScreen(point.x, point.y);
             
-            ctx.fillStyle = element.properties.stroke;
+            ctx.fillStyle = element.style?.strokeColor || '#FF0000';
             ctx.beginPath();
             ctx.arc(pointScreen.x, pointScreen.y, 3, 0, 2 * Math.PI);
             ctx.fill();
             
             // 十字マーク（固定サイズ）
-            ctx.strokeStyle = element.properties.stroke;
+            ctx.strokeStyle = element.style?.strokeColor || '#FF0000';
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(pointScreen.x - 8, pointScreen.y);
@@ -773,13 +977,13 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
 
         case 'survey_point':
-          if (element.points.length >= 1) {
+          if (element.points?.length >= 1) {
             const point = element.points[0];
             const pointScreen = worldToScreen(point.x, point.y);
             
             // 測量点シンボル（三角形）
-            ctx.fillStyle = element.properties.stroke;
-            ctx.strokeStyle = element.properties.stroke;
+            ctx.fillStyle = element.style?.strokeColor || '#FF0000';
+            ctx.strokeStyle = element.style?.strokeColor || '#FF0000';
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(pointScreen.x, pointScreen.y - 8);
@@ -799,9 +1003,9 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
 
         case 'boundary_line':
-          if (element.points.length >= 2) {
+          if (element.points?.length >= 2) {
             // 境界線（特殊な線種）
-            ctx.strokeStyle = element.properties.stroke;
+            ctx.strokeStyle = element.style?.strokeColor || '#FF0000';
             ctx.lineWidth = 2;
             ctx.setLineDash([10, 5, 2, 5]); // 境界線パターン
             
@@ -809,7 +1013,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             const startScreen = worldToScreen(element.points[0].x, element.points[0].y);
             ctx.moveTo(startScreen.x, startScreen.y);
             
-            for (let i = 1; i < element.points.length; i++) {
+            for (let i = 1; i < element.points?.length; i++) {
               const pointScreen = worldToScreen(element.points[i].x, element.points[i].y);
               ctx.lineTo(pointScreen.x, pointScreen.y);
             }
@@ -819,16 +1023,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
 
         case 'contour_line':
-          if (element.points.length >= 2) {
+          if (element.points?.length >= 2) {
             // 等高線
-            ctx.strokeStyle = element.properties.stroke;
+            ctx.strokeStyle = element.style?.strokeColor || '#FF0000';
             ctx.lineWidth = 1;
             
             ctx.beginPath();
             const startScreen = worldToScreen(element.points[0].x, element.points[0].y);
             ctx.moveTo(startScreen.x, startScreen.y);
             
-            for (let i = 1; i < element.points.length; i++) {
+            for (let i = 1; i < element.points?.length; i++) {
               const pointScreen = worldToScreen(element.points[i].x, element.points[i].y);
               ctx.lineTo(pointScreen.x, pointScreen.y);
             }
@@ -836,7 +1040,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             
             // 標高値表示
             if (element.properties.elevation) {
-              const midPoint = Math.floor(element.points.length / 2);
+              const midPoint = Math.floor(element.points?.length / 2);
               const midScreen = worldToScreen(element.points[midPoint].x, element.points[midPoint].y);
               ctx.fillStyle = '#804000';
               ctx.font = '9px Arial';
@@ -846,9 +1050,9 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
 
         case 'traverse_line':
-          if (element.points.length >= 2) {
+          if (element.points?.length >= 2) {
             // トラバース線（測量線）
-            ctx.strokeStyle = element.properties.stroke;
+            ctx.strokeStyle = element.style?.strokeColor || '#FF0000';
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 4]); // 点線パターン
             
@@ -856,7 +1060,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             const startScreen = worldToScreen(element.points[0].x, element.points[0].y);
             ctx.moveTo(startScreen.x, startScreen.y);
             
-            for (let i = 1; i < element.points.length; i++) {
+            for (let i = 1; i < element.points?.length; i++) {
               const pointScreen = worldToScreen(element.points[i].x, element.points[i].y);
               ctx.lineTo(pointScreen.x, pointScreen.y);
             }
@@ -865,7 +1069,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             
             // 距離と方位角表示
             if (element.properties.distance && element.properties.azimuth) {
-              const midPoint = Math.floor(element.points.length / 2);
+              const midPoint = Math.floor(element.points?.length / 2);
               const midScreen = worldToScreen(element.points[midPoint].x, element.points[midPoint].y);
               ctx.fillStyle = '#006600';
               ctx.font = '8px Arial';
@@ -876,13 +1080,13 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
 
         case 'control_point':
-          if (element.points.length >= 1) {
+          if (element.points?.length >= 1) {
             const point = element.points[0];
             const pointScreen = worldToScreen(point.x, point.y);
             
             // 制御点シンボル（四角形）
-            ctx.fillStyle = element.properties.stroke;
-            ctx.strokeStyle = element.properties.stroke;
+            ctx.fillStyle = element.style?.strokeColor || '#FF0000';
+            ctx.strokeStyle = element.style?.strokeColor || '#FF0000';
             ctx.lineWidth = 2;
             
             ctx.fillRect(pointScreen.x - 6, pointScreen.y - 6, 12, 12);
@@ -908,31 +1112,31 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
 
         case 'building_outline':
-          if (element.points.length >= 3) {
+          if (element.points?.length >= 3) {
             // 建物輪郭線
-            ctx.strokeStyle = element.properties.stroke;
-            ctx.fillStyle = element.properties.fill || 'rgba(128, 128, 128, 0.3)';
+            ctx.strokeStyle = element.style?.strokeColor || '#FF0000';
+            ctx.fillStyle = element.style?.fillColor || 'rgba(128, 128, 128, 0.3)';
             ctx.lineWidth = 2;
             
             ctx.beginPath();
             const startScreen = worldToScreen(element.points[0].x, element.points[0].y);
             ctx.moveTo(startScreen.x, startScreen.y);
             
-            for (let i = 1; i < element.points.length; i++) {
+            for (let i = 1; i < element.points?.length; i++) {
               const pointScreen = worldToScreen(element.points[i].x, element.points[i].y);
               ctx.lineTo(pointScreen.x, pointScreen.y);
             }
             ctx.closePath();
             
-            if (element.properties.fill) {
+            if (element.style?.fillColor) {
               ctx.fill();
             }
             ctx.stroke();
             
             // 建物種別表示
             if (element.properties.buildingType) {
-              const centerX = element.points.reduce((sum, p) => sum + p.x, 0) / element.points.length;
-              const centerY = element.points.reduce((sum, p) => sum + p.y, 0) / element.points.length;
+              const centerX = element.points.reduce((sum, p) => sum + p.x, 0) / element.points?.length;
+              const centerY = element.points.reduce((sum, p) => sum + p.y, 0) / element.points?.length;
               const centerScreen = worldToScreen(centerX, centerY);
               
               ctx.fillStyle = '#000000';
@@ -945,16 +1149,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
           
         case 'text':
-          if (element.points.length >= 1 && element.properties.text) {
+          if (element.points?.length >= 1 && element.properties.text) {
             const pointScreen = worldToScreen(element.points[0].x, element.points[0].y);
-            ctx.fillStyle = element.properties.stroke;
+            ctx.fillStyle = element.style?.strokeColor || '#FF0000';
             ctx.font = `${(element.properties.fontSize || 12) * zoom}px Arial`;
             ctx.fillText(element.properties.text, pointScreen.x, pointScreen.y);
           }
           break;
           
         case 'comment':
-          if (element.points.length >= 1 && element.properties.text) {
+          if (element.points?.length >= 1 && element.properties.text) {
             const pointScreen = worldToScreen(element.points[0].x, element.points[0].y);
             
             // コメント背景の描画
@@ -1015,7 +1219,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   }, [elements, layers, selectedElement, worldToScreen, zoom]);
   
   const getElementBounds = (element: CADElement) => {
-    if (element.points.length === 0) return null;
+    if (element.points?.length === 0) return null;
     
     let minX = element.points[0].x;
     let maxX = element.points[0].x;
@@ -1255,7 +1459,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           strokeWidth: 1,
           text: commentText.trim(),
           fontSize: 12
-        }
+        },
+        sxfAttributes: {
+          layerName: layers.find(l => l.id === activeLayer)?.name || 'Default',
+          lineType: currentDrawingProperties.lineType,
+          lineWidth: 0.25,
+          color: '#e6cc00'
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        version: 1
       };
       
       setElements(prev => [...prev, newComment]);
@@ -1272,67 +1485,451 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     setShowCommentInput(false);
   };
 
+  // 要素プロパティ編集機能
+  const handleEditElementProperties = (elementId: string) => {
+    const element = elements.find(e => e.id === elementId);
+    if (element) {
+      setEditingElementProperties({...element});
+      setShowPropertiesPanel(true);
+    }
+  };
 
+  const handleSaveElementProperties = (updatedElement: CADElement) => {
+    setElements(prev => prev.map(el => 
+      el.id === updatedElement.id ? updatedElement : el
+    ));
+    setShowPropertiesPanel(false);
+    setEditingElementProperties(null);
+  };
 
-  // SXF/P21インポート・エクスポート機能
-  const handleImportSXF = useCallback(async (file: File) => {
-    try {
-      const fileContent = file.name.toLowerCase().endsWith('.p21') 
-        ? await file.text()
-        : await file.arrayBuffer();
+  const handleCancelElementProperties = () => {
+    setShowPropertiesPanel(false);
+    setEditingElementProperties(null);
+  };
 
-      // let convertedElements: any[] = []; // 一時的に無効化
+  // レベル間座標変換関数
+  const transformCoordinates = useCallback((x: number, y: number, fromLevel: CADLevel, toLevel: CADLevel) => {
+    // fromLevelからtoLevelへの座標変換
+    
+    // 1. fromLevelのスケールを適用（逆変換）
+    let transformedX = x / fromLevel.scaleX;
+    let transformedY = y / fromLevel.scaleY;
+    
+    // 2. fromLevelの回転を適用（逆変換）
+    if (fromLevel.rotation !== 0) {
+      const radians = -fromLevel.rotation * Math.PI / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      const newX = transformedX * cos - transformedY * sin;
+      const newY = transformedX * sin + transformedY * cos;
+      transformedX = newX;
+      transformedY = newY;
+    }
+    
+    // 3. fromLevelの原点を適用（逆変換）
+    transformedX += fromLevel.originX;
+    transformedY += fromLevel.originY;
+    
+    // 4. toLevelの原点を適用
+    transformedX -= toLevel.originX;
+    transformedY -= toLevel.originY;
+    
+    // 5. toLevelの回転を適用
+    if (toLevel.rotation !== 0) {
+      const radians = toLevel.rotation * Math.PI / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      const newX = transformedX * cos - transformedY * sin;
+      const newY = transformedX * sin + transformedY * cos;
+      transformedX = newX;
+      transformedY = newY;
+    }
+    
+    // 6. toLevelのスケールを適用
+    transformedX *= toLevel.scaleX;
+    transformedY *= toLevel.scaleY;
+    
+    return { x: transformedX, y: transformedY };
+  }, []);
 
-      if (file.name.toLowerCase().endsWith('.p21')) {
-        // P21ファイルの処理
-        const parser = new P21Parser({
-          encoding: 'utf-8',
-          coordinateSystem: paperSettings.coordinateSystem?.toString() || 'JGD2000'
-        });
-        
-        const parseResult = await parser.parseFile(fileContent as string);
-        
-        if (parseResult.success && parseResult.data) {
-          // const converter = new SXFConverter(); // 一時的に無効化
-          // const conversionResult = converter.convertToDrawingElements(parseResult.data);
-          // convertedElements = conversionResult.elements;
-          console.log('P21インポート機能は一時的に無効化されています');
-          alert('P21インポート機能は一時的に無効化されています');
-          return;
-        } else {
-          console.error('P21解析エラー:', parseResult.errors);
-          return;
+  // アクティブレベルから用紙レベルへの変換
+  const transformToPaper = useCallback((x: number, y: number) => {
+    const activeLevel = coordinateSystem.levels.find(l => l.id === coordinateSystem.activeLevel) || coordinateSystem.paperLevel;
+    return transformCoordinates(x, y, activeLevel, coordinateSystem.paperLevel);
+  }, [coordinateSystem, transformCoordinates]);
+
+  // 用紙レベルからアクティブレベルへの変換
+  const transformFromPaper = useCallback((x: number, y: number) => {
+    const activeLevel = coordinateSystem.levels.find(l => l.id === coordinateSystem.activeLevel) || coordinateSystem.paperLevel;
+    return transformCoordinates(x, y, coordinateSystem.paperLevel, activeLevel);
+  }, [coordinateSystem, transformCoordinates]);
+
+  // 要素の当たり判定
+  const findElementAtPosition = (worldX: number, worldY: number): CADElement | null => {
+    const tolerance = 5 / zoom; // ズームに応じた許容範囲
+    
+    // 逆順でチェック（後に描画された要素が優先）
+    for (let i = elements.length - 1; i >= 0; i--) {
+      const element = elements[i];
+      
+      if (element.type === 'line' && element.points?.length >= 2) {
+        // 線分の当たり判定
+        for (let j = 0; j < element.points.length - 1; j++) {
+          const p1 = element.points[j];
+          const p2 = element.points[j + 1];
+          
+          const dist = distancePointToLineSegment(worldX, worldY, p1.x, p1.y, p2.x, p2.y);
+          if (dist <= tolerance) {
+            return element;
+          }
         }
-      } else {
-        // SXFファイルの処理
-        const parser = new SXFParser({
-          encoding: 'shift_jis',
-          coordinateSystem: paperSettings.coordinateSystem?.toString() || 'JGD2000'
-        });
+      } else if (element.type === 'circle') {
+        // 円の当たり判定
+        if (element.centerX !== undefined && element.centerY !== undefined && element.radius !== undefined) {
+          const dist = Math.sqrt(Math.pow(worldX - element.centerX, 2) + Math.pow(worldY - element.centerY, 2));
+          if (Math.abs(dist - element.radius) <= tolerance) {
+            return element;
+          }
+        }
+      } else if (element.points?.length > 0) {
+        // その他の要素（点、多角形など）
+        for (const point of element.points) {
+          const dist = Math.sqrt(Math.pow(worldX - point.x, 2) + Math.pow(worldY - point.y, 2));
+          if (dist <= tolerance) {
+            return element;
+          }
+        }
+      }
+    }
+    
+    return null;
+  };
+
+  // 点と線分の距離を計算
+  const distancePointToLineSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    let param = -1;
+    
+    if (lenSq !== 0) {
+      param = dot / lenSq;
+    }
+
+    let xx, yy;
+
+    if (param < 0) {
+      xx = x1;
+      yy = y1;
+    } else if (param > 1) {
+      xx = x2;
+      yy = y2;
+    } else {
+      xx = x1 + param * C;
+      yy = y1 + param * D;
+    }
+
+    const dx = px - xx;
+    const dy = py - yy;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+
+
+  // SXF要素をCAD要素に変換する関数
+  const convertSXFToCADElement = useCallback((sxfElement: any, index: number): CADElement | null => {
+    try {
+      const baseElement = {
+        id: `sxf_${sxfElement.id}_${index}`,
+        layerId: 'S-BOUND', // デフォルトレイヤー
+        style: {
+          strokeColor: '#FF0000', // 赤色をデフォルト
+          strokeWidth: 0.25,
+          fillColor: 'transparent'
+        },
+        visible: true,
+        locked: false,
+        metadata: {
+          source: 'sxf',
+          originalId: sxfElement.id,
+          originalType: sxfElement.type
+        }
+      };
+
+      switch (sxfElement.type) {
+        case 'arc_feature':
+          if (sxfElement.properties.centerX !== undefined && 
+              sxfElement.properties.centerY !== undefined && 
+              sxfElement.properties.radius !== undefined) {
+            
+            // 座標値をそのまま使用（座標系変換はズームで調整）
+            const centerX = sxfElement.properties.centerX;
+            const centerY = sxfElement.properties.centerY;
+            const radius = Math.max(sxfElement.properties.radius, 1); // 最小半径を1に設定
+            
+            console.log(`円要素: 中心(${centerX}, ${centerY}), 半径:${radius}`);
+            
+            return {
+              ...baseElement,
+              type: 'circle',
+              points: [
+                { x: centerX, y: centerY },
+                { x: centerX + radius, y: centerY }
+              ]
+            } as CADElement;
+          }
+          break;
+
+        case 'user_defined_colour_feature':
+          // 色定義は直接要素として表示しない
+          return null;
+
+        case 'width_feature':
+          // 線幅定義は直接要素として表示しない  
+          return null;
+
+        case 'text_font_feature':
+          // フォント定義は直接要素として表示しない
+          return null;
+
+        case 'composite_curve_org_feature':
+          // 複合曲線は点として表示（簡易表示）
+          return {
+            ...baseElement,
+            type: 'point',
+            point: { x: 0, y: 0 }, // 座標情報がない場合のデフォルト
+            style: {
+              ...baseElement.style,
+              strokeColor: '#0000FF'
+            }
+          } as CADElement;
+
+        case 'CARTESIAN_POINT':
+          // 座標ポイントを点要素として表示
+          if (sxfElement.properties.hasCoordinates) {
+            return {
+              ...baseElement,
+              type: 'point',
+              points: [{ x: sxfElement.properties.x, y: sxfElement.properties.y }]
+            } as CADElement;
+          }
+          return null;
+          
+        case 'CIRCLE':
+          // 円要素の処理
+          if (sxfElement.properties.circleData) {
+            // シンプルな円として表示
+            return {
+              ...baseElement,
+              type: 'circle',
+              points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] // デフォルト半径
+            } as CADElement;
+          }
+          return null;
+          
+        case 'POLYLINE':
+          // ポリラインを線要素として表示
+          if (sxfElement.properties.polylineData) {
+            return {
+              ...baseElement,
+              type: 'line',
+              points: [{ x: 0, y: 0 }, { x: 10, y: 10 }] // デフォルトライン
+            } as CADElement;
+          }
+          return null;
+          
+        case 'LINE':
+          // 線要素の処理
+          if (sxfElement.properties.lineData) {
+            return {
+              ...baseElement,
+              type: 'line',
+              points: [{ x: 0, y: 0 }, { x: 10, y: 10 }] // デフォルトライン
+            } as CADElement;
+          }
+          return null;
+          
+        case 'polyline_feature':
+          // ポリライン特徴の処理
+          if (sxfElement.properties.hasPolylineData && sxfElement.properties.polylinePoints) {
+            const points = sxfElement.properties.polylinePoints;
+            console.log(`polyline_feature変換: ${points.length}個のポイントを線要素に変換`);
+            return {
+              ...baseElement,
+              type: 'line',
+              points: points
+            } as CADElement;
+          }
+          return null;
         
-        const parseResult = await parser.parseFile(fileContent as ArrayBuffer);
+        default:
+          // 非表示要素はスキップ
+          if (['DRAUGHTING_PRE_DEFINED_COLOUR', 'LENGTH_MEASURE_WITH_UNIT', 'EXTERNAL_SOURCE', 
+               'EXTERNALLY_DEFINED_TEXT_FONT', 'COLOUR_RGB', 'DRAUGHTING_PRE_DEFINED_CURVE_FONT',
+               'CURVE_STYLE_FONT_PATTERN', 'CURVE_STYLE_FONT', 'CURVE_STYLE', 'PRESENTATION_STYLE_ASSIGNMENT',
+               'AXIS2_PLACEMENT_2D', 'TRIMMED_CURVE', 'DRAUGHTING_SUBFIGURE_REPRESENTATION',
+               'SYMBOL_REPRESENTATION_MAP', 'DIRECTION', 'VECTOR', 'PLANAR_EXTENT', 'TEXT_LITERAL_WITH_EXTENT',
+               'TEXT_STYLE_FOR_DEFINED_FONT', 'SYMBOL_TARGET', 'PRE_DEFINED_POINT_MARKER_SYMBOL',
+               'DEFINED_SYMBOL', 'SYMBOL_COLOUR', 'SYMBOL_STYLE', 'COMPOSITE_CURVE_SEGMENT', 'COMPOSITE_CURVE',
+               'user_defined_colour_feature', 'pre_defined_font_feature', 'user_defined_font_feature', 'width_feature'].includes(sxfElement.type)) {
+            // これらは表示要素ではないためスキップ
+            return null;
+          }
+          // その他の未対応要素
+          console.log(`未対応のSXF要素タイプ: ${sxfElement.type}`);
+          return null;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('SXF要素変換エラー:', error, sxfElement);
+      return null;
+    }
+  }, []);
+
+  // SFC/P21インポート・エクスポート機能
+  const handleImportSXF = useCallback(async (file: File) => {
+    console.log('SFC/SXF/P21ファイルインポート開始:', file.name, file.size, 'bytes');
+    
+    try {
+      const fileContent = await readSXFFileWithEncoding(file);
+      console.log('ファイル内容読み込み完了:', fileContent.length, '文字');
+
+      // 我々のSXFパーサーを使用
+      const parser = new SXFParser();
+      console.log('SFC/SXF解析開始...');
+      
+      // 段階的解析でメモリ効率を向上（大きなファイル用）
+      const sxfData = await parser.parseProgressively(fileContent, (progress) => {
+        console.log(`解析進行: ${progress.toFixed(1)}%`);
+        // TODO: プログレスバー表示
+      });
+
+      console.log('SFC/SXF解析完了:', sxfData.statistics);
+
+      // CADレベル情報を処理
+      if (sxfData.levels && sxfData.levels.length > 0) {
+        const newLevels: CADLevel[] = sxfData.levels.map((sxfLevel, index) => ({
+          id: sxfLevel.id,
+          name: sxfLevel.name || `レベル${index}`,
+          levelNumber: sxfLevel.levelNumber,  // SXFParserで設定された番号を使用
+          originX: sxfLevel.originX,
+          originY: sxfLevel.originY,
+          rotation: sxfLevel.rotation,
+          scaleX: sxfLevel.scaleX,
+          scaleY: sxfLevel.scaleY,
+          description: `レベル${sxfLevel.levelNumber}: 縮尺 1/${Math.round(1/sxfLevel.scaleX)}, 原点(${sxfLevel.originX.toFixed(2)}, ${sxfLevel.originY.toFixed(2)}), 回転${sxfLevel.rotation.toFixed(2)}°`,
+          isActive: index === 0
+        }));
         
-        if (parseResult.success && parseResult.data) {
-          // const converter = new SXFConverter(); // 一時的に無効化
-          // const conversionResult = converter.convertToDrawingElements(parseResult.data);
-          // convertedElements = conversionResult.elements;
-          console.log('SXFインポート機能は一時的に無効化されています');
-          alert('SXFインポート機能は一時的に無効化されています');
-          return;
-        } else {
-          console.error('SXF解析エラー:', parseResult.errors);
-          return;
+        setCoordinateSystem(prev => ({
+          ...prev,
+          levels: newLevels,
+          activeLevel: newLevels.length > 0 ? newLevels[0].id : 'paper'
+        }));
+        
+        console.log(`${newLevels.length}個のCADレベルを検出しました:`, newLevels);
+      }
+
+      // SXF要素をCAD要素に変換
+      const convertedElements: CADElement[] = [];
+      let elementCount = 0;
+
+      for (const sxfElement of sxfData.elements) {
+        const cadElement = convertSXFToCADElement(sxfElement, elementCount++);
+        if (cadElement) {
+          convertedElements.push(cadElement);
+        }
+        
+        // パフォーマンス制限：一度に表示する要素数を制限
+        if (convertedElements.length >= 1000) {
+          console.log('パフォーマンス制限により1000要素で変換を停止');
+          break;
         }
       }
 
       // 変換された要素をCADエディタに追加
-      // setElements(prev => [...prev, ...convertedElements]); // 一時的に無効化
-      // console.log(`${convertedElements.length}個の要素をインポートしました`); // 一時的に無効化
+      if (convertedElements.length > 0) {
+        setElements(prev => [...prev, ...convertedElements]);
+        console.log(`${convertedElements.length}個の要素をインポートしました`);
+        
+        // 座標系情報を更新し、データに合わせてズームとパンを自動調整
+        if (sxfData.statistics.coordinateRange.minX !== Infinity) {
+          const range = sxfData.statistics.coordinateRange;
+          console.log('元の座標範囲:', range);
+          
+          // データの中心を計算
+          const centerX = (range.minX + range.maxX) / 2;
+          const centerY = (range.minY + range.maxY) / 2;
+          
+          // データの範囲を計算
+          const rangeX = Math.abs(range.maxX - range.minX);
+          const rangeY = Math.abs(range.maxY - range.minY);
+          
+          console.log('データ中心:', { centerX, centerY });
+          console.log('データ範囲:', { rangeX, rangeY });
+          
+          // キャンバスサイズを取得（デフォルトサイズを仮定）
+          const canvasWidth = 800;
+          const canvasHeight = 600;
+          
+          // データがキャンバスに収まるよう適切なズーム倍率を計算
+          // マージンを20%確保
+          const zoomX = (canvasWidth * 0.8) / rangeX;
+          const zoomY = (canvasHeight * 0.8) / rangeY;
+          const appropriateZoom = Math.min(zoomX, zoomY, 2.0); // 最大2倍まで
+          
+          // データ中心が画面中央に来るようパン値を計算
+          const panX = canvasWidth / 2 - centerX * appropriateZoom;
+          const panY = canvasHeight / 2 - centerY * appropriateZoom;
+          
+          console.log('計算されたズームとパン:', { 
+            zoom: appropriateZoom, 
+            pan: { x: panX, y: panY } 
+          });
+          
+          setZoom(appropriateZoom);
+          setPan({ x: panX, y: panY });
+        } else {
+          // 座標範囲が取得できない場合のデフォルト設定
+          console.log('座標範囲が不明、デフォルト表示設定を使用');
+          setZoom(1.0);
+          setPan({ x: 400, y: 300 });
+        }
+
+        // 用紙サイズ情報があれば設定を更新
+        if (sxfData.paperSize) {
+          console.log('SFCファイルから用紙サイズを検出:', sxfData.paperSize);
+          setPaperSettings(prev => ({
+            ...prev,
+            size: {
+              id: 'sfc-custom',
+              name: `SFC用紙 (${sxfData.paperSize!.width}×${sxfData.paperSize!.height})`,
+              width: sxfData.paperSize!.width,
+              height: sxfData.paperSize!.height
+            }
+          }));
+        }
+        
+        const paperInfo = sxfData.paperSize ? 
+          `\n\n用紙サイズ: ${sxfData.paperSize.width} × ${sxfData.paperSize.height}` : '';
+        const summaryMessage = `${convertedElements.length}個の要素を正常にインポートしました\n\n解析結果:\n${parser.getSummary()}${paperInfo}`;
+        console.log(summaryMessage);
+        alert(summaryMessage);
+      } else {
+        console.log('変換可能な要素が見つかりませんでした');
+        alert('変換可能な要素が見つかりませんでした\n\n解析結果:\n' + parser.getSummary());
+      }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('ファイルインポートエラー:', error);
+      alert(`ファイルの読み込み中にエラーが発生しました:\n${error.message}`);
     }
-  }, [paperSettings.coordinateSystem]);
+  }, [paperSettings.coordinateSystem, convertSXFToCADElement]);
 
   const handleExportP21 = useCallback(async () => {
     try {
@@ -1428,10 +2025,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       y: (e.clientY - rect.top) * dpr
     };
     
+    // CSS座標系でパン用座標を計算
+    const cssScreenPos = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+    
     // 中ボタンまたは選択ツール+ドラッグでパン開始
     if (e.button === 1 || (tool === 'pointer' && e.button === 0)) {
       setIsPanning(true);
-      setLastPanPos(screenPos);
+      setLastPanPos(cssScreenPos); // CSS座標系を使用
       return;
     }
     
@@ -1439,8 +2042,17 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     
     if (tool === 'pointer') {
       // 要素選択
-      // TODO: 要素のヒット判定実装
-      setSelectedElement(null);
+      const hitElement = findElementAtPosition(pos.x, pos.y);
+      if (hitElement) {
+        setSelectedElement(hitElement.id);
+        
+        // ダブルクリック判定（detail === 2）
+        if (e.detail === 2) {
+          handleEditElementProperties(hitElement.id);
+        }
+      } else {
+        setSelectedElement(null);
+      }
       return;
     }
     
@@ -1481,17 +2093,39 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       y: (e.clientY - rect.top) * dpr
     };
     
-    // パン処理
+    // CSS座標でマウス位置を計算（DPR調整前）
+    const cssScreenPos = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+    
+    // 用紙座標（ワールド座標）を計算して保存（CSS座標を使用）
+    const worldPos = screenToWorld(cssScreenPos.x, cssScreenPos.y);
+    
+    // デバッグ用ログ（一時的）
+    if (Math.random() < 0.1) { // 10%の確率でログ出力
+      console.log('=== マウス座標デバッグ ===');
+      console.log('CSS座標:', cssScreenPos);
+      console.log('DPR座標:', screenPos);
+      console.log('ワールド座標:', worldPos);
+      console.log('パン:', pan);
+      console.log('ズーム:', zoom);
+      console.log('========================');
+    }
+    
+    setMouseCoords(worldPos);
+    
+    // パン処理（CSS座標系を使用）
     if (isPanning) {
-      const deltaX = screenPos.x - lastPanPos.x;
-      const deltaY = screenPos.y - lastPanPos.y;
+      const deltaX = cssScreenPos.x - lastPanPos.x;
+      const deltaY = cssScreenPos.y - lastPanPos.y;
       
       setPan(prev => ({
         x: prev.x + deltaX,
         y: prev.y + deltaY
       }));
       
-      setLastPanPos(screenPos);
+      setLastPanPos(cssScreenPos);
       return;
     }
     
@@ -1537,7 +2171,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         properties: {
           stroke: layers.find(l => l.id === activeLayer)?.color || '#000000',
           strokeWidth: 1
-        }
+        },
+        sxfAttributes: {
+          layerName: layers.find(l => l.id === activeLayer)?.name || 'Default',
+          lineType: currentDrawingProperties.lineType,
+          lineWidth: currentDrawingProperties.lineWidth,
+          color: currentDrawingProperties.color
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        version: 1
       };
       
       setElements(prev => [...prev, newElement]);
@@ -1687,7 +2330,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       properties: {
         ...baseProperties,
         ...additionalProperties
-      }
+      },
+      sxfAttributes: {
+        layerName: layers.find(l => l.id === activeLayer)?.name || 'Default',
+        lineType: currentDrawingProperties.lineType,
+        lineWidth: tool === 'boundary_line' ? 0.7 : tool === 'traverse_line' ? 0.7 : currentDrawingProperties.lineWidth,
+        color: currentDrawingProperties.color
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      version: 1
     };
     
     setElements(prev => [...prev, newElement]);
@@ -1717,15 +2369,33 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     const fitZoom = Math.min(zoomX, zoomY);
     
     // 用紙を画面中央に配置するパン値を計算
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    const paperCenterX = (paperWidth * fitZoom) / 2;
-    const paperCenterY = (paperHeight * fitZoom) / 2;
+    // 目標: 用紙の左下角(0,0)を適切な位置に配置
+    const screenCenterX = rect.width / 2;
+    const screenCenterY = rect.height / 2;
+    
+    // 新しい座標変換に基づくパン値計算
+    // worldToScreen式: screenX = worldX * zoom + pan.x, screenY = pan.y + (paperHeight - worldY) * zoom
+    // pan.x = 用紙左端のスクリーンX座標 (worldX=0の時のscreenX)  
+    // pan.y = 用紙上端のスクリーンY座標 (worldY=paperHeightの時のscreenY)
+    
+    // 用紙中心(paperWidth/2, paperHeight/2)をスクリーン中央に配置
+    // screenCenterX = (paperWidth/2) * fitZoom + pan.x  →  pan.x = screenCenterX - (paperWidth/2) * fitZoom
+    // screenCenterY = pan.y + (paperHeight - paperHeight/2) * fitZoom = pan.y + (paperHeight/2) * fitZoom
+    // →  pan.y = screenCenterY - (paperHeight/2) * fitZoom
+    
+    const panX = screenCenterX - (paperWidth / 2) * fitZoom;
+    const panY = screenCenterY - (paperHeight / 2) * fitZoom;
     
     setZoom(fitZoom);
     setPan({ 
-      x: centerX - paperCenterX, 
-      y: centerY - paperCenterY 
+      x: panX,
+      y: panY
+    });
+    
+    console.log('ZoomFit設定:', {
+      paperWidth, paperHeight, fitZoom,
+      screenCenter: { x: screenCenterX, y: screenCenterY },
+      pan: { x: panX, y: panY }
     });
   };
 
@@ -1755,15 +2425,23 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     if (!canvas) return;
     
     const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const mouseX = (e.clientX - rect.left) * dpr;
-    const mouseY = (e.clientY - rect.top) * dpr;
+    // CSS座標系でマウス位置を取得（DPR調整なし）
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
     
-    // ズーム倍率
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.05), 20);
+    // ズーム倍率（大きな座標系の場合はより細かく調整）
+    const zoomFactor = zoom < 0.1 ? 
+      (e.deltaY > 0 ? 0.95 : 1.05) :  // 小さなズームでは細かく調整
+      (e.deltaY > 0 ? 0.9 : 1.1);     // 通常のズーム調整
     
-    // マウス位置を中心にズーム（DPI調整済み座標を使用）
+    const newZoom = Math.min(Math.max(zoom * zoomFactor, 0.0001), 20);
+    
+    // デバッグログ（大きな座標系の場合）
+    if (zoom < 0.1) {
+      console.log(`ズーム調整: ${zoom.toFixed(6)} -> ${newZoom.toFixed(6)}, パン: (${pan.x.toFixed(2)}, ${pan.y.toFixed(2)})`);
+    }
+    
+    // マウス位置を中心にズーム（CSS座標系を使用）
     const zoomRatio = newZoom / zoom;
     const newPanX = mouseX - (mouseX - pan.x) * zoomRatio;
     const newPanY = mouseY - (mouseY - pan.y) * zoomRatio;
@@ -1951,8 +2629,8 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         case 'line':
         case 'boundary_line':
         case 'contour_line':
-          if (element.points.length >= 2) {
-            for (let i = 0; i < element.points.length - 1; i++) {
+          if (element.points?.length >= 2) {
+            for (let i = 0; i < element.points?.length - 1; i++) {
               dxfContent.push('0');
               dxfContent.push('LINE');
               dxfContent.push('8');
@@ -1970,7 +2648,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
           
         case 'circle':
-          if (element.points.length >= 2) {
+          if (element.points?.length >= 2) {
             const center = element.points[0];
             const edge = element.points[1];
             const radius = Math.sqrt(
@@ -1992,7 +2670,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           
         case 'point':
         case 'survey_point':
-          if (element.points.length >= 1) {
+          if (element.points?.length >= 1) {
             const point = element.points[0];
             dxfContent.push('0');
             dxfContent.push('POINT');
@@ -2006,7 +2684,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           break;
           
         case 'text':
-          if (element.points.length >= 1 && element.properties.text) {
+          if (element.points?.length >= 1 && element.properties.text) {
             const point = element.points[0];
             dxfContent.push('0');
             dxfContent.push('TEXT');
@@ -2499,39 +3177,39 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         case 'line':
         case 'boundary_line':
         case 'contour_line':
-          if (element.points.length >= 2) {
+          if (element.points?.length >= 2) {
             const pathData = element.points.map((point, index) => {
               return `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`;
             }).join(' ');
-            svgElements.push(`<path d="${pathData}" stroke="${element.properties.stroke}" stroke-width="${element.properties.strokeWidth}" fill="none"/>`);
+            svgElements.push(`<path d="${pathData}" stroke="${element.style?.strokeColor || '#FF0000'}" stroke-width="${element.style?.strokeWidth || 1}" fill="none"/>`);
           }
           break;
           
         case 'circle':
-          if (element.points.length >= 2) {
+          if (element.points?.length >= 2) {
             const center = element.points[0];
             const edge = element.points[1];
             const radius = Math.sqrt(
               Math.pow(edge.x - center.x, 2) + Math.pow(edge.y - center.y, 2)
             );
-            svgElements.push(`<circle cx="${center.x}" cy="${center.y}" r="${radius}" stroke="${element.properties.stroke}" stroke-width="${element.properties.strokeWidth}" fill="${element.properties.fill || 'none'}"/>`);
+            svgElements.push(`<circle cx="${center.x}" cy="${center.y}" r="${radius}" stroke="${element.style?.strokeColor || '#FF0000'}" stroke-width="${element.style?.strokeWidth || 1}" fill="${element.style?.fillColor || 'none'}"/>`);
           }
           break;
           
         case 'point':
         case 'survey_point':
-          if (element.points.length >= 1) {
+          if (element.points?.length >= 1) {
             const point = element.points[0];
-            svgElements.push(`<circle cx="${point.x}" cy="${point.y}" r="3" fill="${element.properties.stroke}"/>`);
-            svgElements.push(`<line x1="${point.x - 8}" y1="${point.y}" x2="${point.x + 8}" y2="${point.y}" stroke="${element.properties.stroke}" stroke-width="2"/>`);
-            svgElements.push(`<line x1="${point.x}" y1="${point.y - 8}" x2="${point.x}" y2="${point.y + 8}" stroke="${element.properties.stroke}" stroke-width="2"/>`);
+            svgElements.push(`<circle cx="${point.x}" cy="${point.y}" r="3" fill="${element.style?.strokeColor || '#FF0000'}"/>`);
+            svgElements.push(`<line x1="${point.x - 8}" y1="${point.y}" x2="${point.x + 8}" y2="${point.y}" stroke="${element.style?.strokeColor || '#FF0000'}" stroke-width="2"/>`);
+            svgElements.push(`<line x1="${point.x}" y1="${point.y - 8}" x2="${point.x}" y2="${point.y + 8}" stroke="${element.style?.strokeColor || '#FF0000'}" stroke-width="2"/>`);
           }
           break;
           
         case 'text':
-          if (element.points.length >= 1 && element.properties.text) {
+          if (element.points?.length >= 1 && element.properties.text) {
             const point = element.points[0];
-            svgElements.push(`<text x="${point.x}" y="${point.y}" font-size="${element.properties.fontSize || 12}" fill="${element.properties.stroke}">${element.properties.text}</text>`);
+            svgElements.push(`<text x="${point.x}" y="${point.y}" font-size="${element.properties.fontSize || 12}" fill="${element.style?.strokeColor || '#FF0000'}">${element.properties.text}</text>`);
           }
           break;
       }
@@ -2554,6 +3232,142 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       <Paper shadow="sm" p="sm" withBorder style={{ width: '100%' }}>
         <Group justify="space-between">
           <Group>
+            {/* ファイル操作 */}
+            <Group gap="xs">
+              <Menu shadow="md" width={200}>
+                <Menu.Target>
+                  <Tooltip label="ファイルを開く">
+                    <ActionIcon variant="light" color="blue">
+                      <IconFolderOpen size={18} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Label>インポート</Menu.Label>
+                  <Menu.Item 
+                    leftSection={<IconFileImport size={16} />}
+                    onClick={() => {
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = '.sxf,.sfc,.p21';
+                      input.onchange = (e) => {
+                        const file = (e.target as HTMLInputElement).files?.[0];
+                        if (file) {
+                          handleImportSXF(file);
+                        }
+                      };
+                      input.click();
+                    }}
+                  >
+                    SXF/SFC/P21ファイル
+                  </Menu.Item>
+                  <Menu.Item 
+                    leftSection={<IconFileImport size={16} />}
+                    onClick={() => {
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = '.json';
+                      input.onchange = (e) => {
+                        const file = (e.target as HTMLInputElement).files?.[0];
+                        if (file) {
+                          importFromJSON(file);
+                        }
+                      };
+                      input.click();
+                    }}
+                  >
+                    JSONファイル
+                  </Menu.Item>
+                  <Menu.Item 
+                    leftSection={<IconFileImport size={16} />}
+                    onClick={() => {
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = '.dxf';
+                      input.onchange = (e) => {
+                        const file = (e.target as HTMLInputElement).files?.[0];
+                        if (file) {
+                          importFromDXF(file);
+                        }
+                      };
+                      input.click();
+                    }}
+                  >
+                    DXFファイル
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+              
+              <Menu shadow="md" width={200}>
+                <Menu.Target>
+                  <Tooltip label="ファイルを保存">
+                    <ActionIcon variant="light" color="green">
+                      <IconDeviceFloppy size={18} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Label>エクスポート</Menu.Label>
+                  <Menu.Item 
+                    leftSection={<IconFileExport size={16} />}
+                    onClick={exportToJSON}
+                  >
+                    JSON形式
+                  </Menu.Item>
+                  <Menu.Item 
+                    leftSection={<IconFileExport size={16} />}
+                    onClick={exportToSVG}
+                  >
+                    SVG形式
+                  </Menu.Item>
+                  <Menu.Item 
+                    leftSection={<IconFileExport size={16} />}
+                    onClick={exportToDXF}
+                  >
+                    DXF形式
+                  </Menu.Item>
+                  <Menu.Item 
+                    leftSection={<IconFileExport size={16} />}
+                    onClick={exportToSXF}
+                  >
+                    SXF形式
+                  </Menu.Item>
+                  <Menu.Item 
+                    leftSection={<IconFileExport size={16} />}
+                    onClick={handleExportP21}
+                  >
+                    P21形式
+                  </Menu.Item>
+                  <Menu.Divider />
+                  <Menu.Item 
+                    leftSection={<IconSettings size={16} />}
+                    onClick={() => {
+                      const validation = validateOCFCompliance();
+                      const message = validation.isCompliant 
+                        ? 'OCF検定に適合しています。'
+                        : `OCF検定に非適合です。\n\n問題:\n${validation.issues.join('\n')}`;
+                      alert(message);
+                    }}
+                  >
+                    OCF検定
+                  </Menu.Item>
+                  <Menu.Item 
+                    leftSection={<IconFileText size={16} />}
+                    onClick={generateOCFReport}
+                  >
+                    OCFレポート
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+              
+              <Tooltip label="CADデータ保存">
+                <ActionIcon variant="light" color="orange" onClick={saveCADData}>
+                  <IconDatabase size={18} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
+            
+            <Divider orientation="vertical" />
             
             {/* 選択ツール */}
             <Group gap="xs">
@@ -2831,6 +3645,90 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           </Group>
           
           <Group>
+            {/* 描画プロパティ設定 */}
+            <Group gap="xs">
+              <Select
+                value={currentDrawingProperties.lineType}
+                onChange={(value) => {
+                  if (value) {
+                    setCurrentDrawingProperties(prev => ({ ...prev, lineType: value }));
+                  }
+                }}
+                data={lineTypes.map(lt => ({ value: lt.value, label: lt.label }))}
+                placeholder="線種"
+                w={100}
+                size="xs"
+                styles={{ dropdown: { zIndex: 1001 } }}
+              />
+              
+              <Select
+                value={currentDrawingProperties.lineWidth.toString()}
+                onChange={(value) => {
+                  if (value) {
+                    setCurrentDrawingProperties(prev => ({ ...prev, lineWidth: parseFloat(value) }));
+                  }
+                }}
+                data={lineWidths.map(lw => ({ value: lw.value.toString(), label: lw.label }))}
+                placeholder="線幅"
+                w={120}
+                size="xs"
+                styles={{ dropdown: { zIndex: 1001 } }}
+              />
+              
+              <Select
+                value={currentDrawingProperties.color}
+                onChange={(value) => {
+                  if (value) {
+                    setCurrentDrawingProperties(prev => ({ ...prev, color: value }));
+                  }
+                }}
+                data={elementColors.map(color => ({ 
+                  value: color.value, 
+                  label: color.label,
+                  leftSection: <div style={{
+                    width: 12,
+                    height: 12,
+                    backgroundColor: color.value,
+                    border: '1px solid #ccc',
+                    borderRadius: 2
+                  }} />
+                }))}
+                placeholder="色"
+                w={100}
+                size="xs"
+                styles={{ dropdown: { zIndex: 1001 } }}
+              />
+            </Group>
+            
+            <Divider orientation="vertical" />
+            
+            {/* CADレベル選択 */}
+            <Select
+              value={coordinateSystem.activeLevel}
+              onChange={(value) => {
+                if (value) {
+                  setCoordinateSystem(prev => ({
+                    ...prev,
+                    activeLevel: value
+                  }));
+                }
+              }}
+              data={[
+                { 
+                  value: coordinateSystem.paperLevel.id, 
+                  label: `用紙: ${coordinateSystem.paperLevel.name}` 
+                },
+                ...coordinateSystem.levels.map(level => ({ 
+                  value: level.id, 
+                  label: `レベル${level.levelNumber}: ${level.name} (1/${Math.round(1/level.scaleX)})` 
+                }))
+              ]}
+              placeholder="座標レベル"
+              w={180}
+              size="xs"
+              styles={{ dropdown: { zIndex: 1001 } }}
+            />
+            
             <Select
               data={layers.filter(l => l.visible).map(l => ({ value: l.id, label: l.name }))}
               value={activeLayer}
@@ -2841,92 +3739,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                 dropdown: { zIndex: 1001 }
               }}
             />
-            <Group gap="xs">
-              <Button 
-                leftSection={<IconDeviceFloppy size={16} />} 
-                size="sm"
-                onClick={saveCADData}
-              >
-                保存
-              </Button>
-              <Select
-                placeholder="操作"
-                size="sm"
-                w={120}
-                data={[
-                  { value: 'export-json', label: 'JSON出力' },
-                  { value: 'export-svg', label: 'SVG出力' },
-                  { value: 'export-dxf', label: 'DXF出力' },
-                  { value: 'export-sxf', label: 'SXF出力' },
-                  { value: 'export-p21', label: 'P21出力' },
-                  { value: 'export-sxf-binary', label: 'SXFバイナリ出力' },
-                  { value: 'ocf-validate', label: 'OCF検定' },
-                  { value: 'ocf-report', label: 'OCFレポート' },
-                  { value: 'import-json', label: 'JSON読込' },
-                  { value: 'import-dxf', label: 'DXF読込' },
-                  { value: 'import-sxf', label: 'SXF/P21読込' }
-                ]}
-                onChange={(value) => {
-                  if (value === 'export-json') {
-                    exportToJSON();
-                  } else if (value === 'export-svg') {
-                    exportToSVG();
-                  } else if (value === 'export-dxf') {
-                    exportToDXF();
-                  } else if (value === 'export-sxf') {
-                    exportToSXF();
-                  } else if (value === 'ocf-validate') {
-                    const validation = validateOCFCompliance();
-                    const message = validation.isCompliant 
-                      ? 'OCF検定に適合しています。'
-                      : `OCF検定に非適合です。\n\n問題:\n${validation.issues.join('\n')}`;
-                    alert(message);
-                  } else if (value === 'ocf-report') {
-                    generateOCFReport();
-                  } else if (value === 'import-json') {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.json';
-                    input.onchange = (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (file) {
-                        importFromJSON(file);
-                      }
-                    };
-                    input.click();
-                  } else if (value === 'import-dxf') {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.dxf';
-                    input.onchange = (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (file) {
-                        importFromDXF(file);
-                      }
-                    };
-                    input.click();
-                  } else if (value === 'import-sxf') {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.sxf,.p21';
-                    input.onchange = (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (file) {
-                        handleImportSXF(file);
-                      }
-                    };
-                    input.click();
-                  } else if (value === 'export-p21') {
-                    handleExportP21();
-                  } else if (value === 'export-sxf-binary') {
-                    handleExportSXF();
-                  }
-                }}
-                styles={{
-                  dropdown: { zIndex: 1001 }
-                }}
-              />
-            </Group>
             <Button variant="light" size="sm" onClick={onClose}>
               閉じる
             </Button>
@@ -2977,9 +3789,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           style={{
             width: '100%',
             height: '100%',
-            cursor: isPanning ? 'grabbing' : 
-                    (currentSnapPoint ? 'crosshair' : 
-                     (tool === 'pointer' ? 'grab' : 'crosshair')),
+            cursor: isPanning ? 'grabbing' : 'crosshair',
             background: '#ffffff',
             display: 'block', // キャンバスの位置ずれを防ぐ
             touchAction: 'none' // タッチデバイスでのスクロールを防ぐ
@@ -3241,7 +4051,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                       realX: coordinateInput.x * 1000, // メートルからミリメートルに変換
                       realY: coordinateInput.y * 1000,
                       realZ: 0
-                    }
+                    },
+                    sxfAttributes: {
+                      layerName: layers.find(l => l.id === activeLayer)?.name || 'Default',
+                      lineType: currentDrawingProperties.lineType,
+                      lineWidth: currentDrawingProperties.lineWidth,
+                      color: currentDrawingProperties.color
+                    },
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    version: 1
                   };
                   
                   setElements(prev => [...prev, newElement]);
@@ -3478,6 +4297,192 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           </Group>
         </Stack>
       </Modal>
+      
+      {/* 要素プロパティ編集モーダル */}
+      <Modal
+        opened={showPropertiesPanel}
+        onClose={handleCancelElementProperties}
+        title={`要素プロパティ編集 (${editingElementProperties?.type || ''})`}
+        size="lg"
+      >
+        {editingElementProperties && (
+          <Stack>
+            <Group grow>
+              <Select
+                label="レイヤ"
+                value={editingElementProperties.sxfAttributes?.layerName || editingElementProperties.layerId}
+                onChange={(value) => {
+                  if (value && editingElementProperties) {
+                    const layer = layers.find(l => l.name === value || l.id === value);
+                    setEditingElementProperties({
+                      ...editingElementProperties,
+                      layerId: layer?.id || value,
+                      sxfAttributes: {
+                        ...editingElementProperties.sxfAttributes,
+                        layerName: layer?.name || value
+                      }
+                    });
+                  }
+                }}
+                data={layers.map(layer => ({ value: layer.name, label: layer.name }))}
+              />
+              
+              <Select
+                label="線種"
+                value={editingElementProperties.sxfAttributes?.lineType || 'solid'}
+                onChange={(value) => {
+                  if (value && editingElementProperties) {
+                    setEditingElementProperties({
+                      ...editingElementProperties,
+                      sxfAttributes: {
+                        ...editingElementProperties.sxfAttributes,
+                        lineType: value
+                      }
+                    });
+                  }
+                }}
+                data={lineTypes.map(lt => ({ value: lt.value, label: lt.label }))}
+              />
+            </Group>
+            
+            <Group grow>
+              <Select
+                label="線幅"
+                value={editingElementProperties.sxfAttributes?.lineWidth?.toString() || '0.35'}
+                onChange={(value) => {
+                  if (value && editingElementProperties) {
+                    setEditingElementProperties({
+                      ...editingElementProperties,
+                      sxfAttributes: {
+                        ...editingElementProperties.sxfAttributes,
+                        lineWidth: parseFloat(value)
+                      }
+                    });
+                  }
+                }}
+                data={lineWidths.map(lw => ({ value: lw.value.toString(), label: lw.label }))}
+              />
+              
+              <Select
+                label="色"
+                value={editingElementProperties.sxfAttributes?.color || '#000000'}
+                onChange={(value) => {
+                  if (value && editingElementProperties) {
+                    setEditingElementProperties({
+                      ...editingElementProperties,
+                      sxfAttributes: {
+                        ...editingElementProperties.sxfAttributes,
+                        color: value
+                      },
+                      properties: {
+                        ...editingElementProperties.properties,
+                        stroke: value
+                      }
+                    });
+                  }
+                }}
+                data={elementColors.map(color => ({ 
+                  value: color.value, 
+                  label: color.label,
+                  // カラーサンプルを表示
+                  leftSection: <div style={{
+                    width: 16,
+                    height: 16,
+                    backgroundColor: color.value,
+                    border: '1px solid #ccc',
+                    borderRadius: 2
+                  }} />
+                }))}
+              />
+            </Group>
+            
+            {/* 要素固有のプロパティ */}
+            {(editingElementProperties.type === 'text' || editingElementProperties.type === 'comment') && (
+              <Textarea
+                label="テキスト内容"
+                value={editingElementProperties.properties.text || ''}
+                onChange={(e) => {
+                  setEditingElementProperties({
+                    ...editingElementProperties,
+                    properties: {
+                      ...editingElementProperties.properties,
+                      text: e.target.value
+                    }
+                  });
+                }}
+                minRows={2}
+              />
+            )}
+            
+            {editingElementProperties.type === 'survey_point' && (
+              <TextInput
+                label="点番号"
+                value={editingElementProperties.properties.pointNumber || ''}
+                onChange={(e) => {
+                  setEditingElementProperties({
+                    ...editingElementProperties,
+                    properties: {
+                      ...editingElementProperties.properties,
+                      pointNumber: e.target.value
+                    }
+                  });
+                }}
+              />
+            )}
+            
+            <Group justify="flex-end">
+              <Button variant="light" onClick={handleCancelElementProperties}>
+                キャンセル
+              </Button>
+              <Button onClick={() => handleSaveElementProperties(editingElementProperties)}>
+                保存
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+      
+      {/* マウス座標表示 */}
+      <Paper 
+        p="xs" 
+        withBorder 
+        style={{ 
+          position: 'absolute', 
+          bottom: 0, 
+          left: 0, 
+          right: 0, 
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          borderRadius: 0,
+          borderTop: '1px solid #dee2e6'
+        }}
+      >
+        <Group justify="space-between" align="center">
+          <Text size="sm" c="dimmed">
+            {mouseCoords 
+              ? `マウス位置: X=${mouseCoords.x.toFixed(2)}mm(右), Y=${mouseCoords.y.toFixed(2)}mm(上)`
+              : 'マウス位置: ---'
+            }
+          </Text>
+          <Text size="sm" c="dimmed">
+            ズーム: {(zoom * 100).toFixed(0)}% | 用紙: {paperSettings.size.name} ({paperSettings.orientation === 'landscape' ? '横' : '縦'})
+          </Text>
+        </Group>
+        
+        {/* 現在のレベル詳細情報 */}
+        <Group justify="center" mt="xs">
+          <Text size="xs" c="blue" fw={500}>
+            {(() => {
+              const activeLevel = coordinateSystem.levels.find(l => l.id === coordinateSystem.activeLevel) || coordinateSystem.paperLevel;
+              const levelDisplay = activeLevel.levelNumber === 0 ? 'レベル0(用紙)' : `レベル${activeLevel.levelNumber}`;
+              const scaleDisplay = `1/${Math.round(1/activeLevel.scaleX)}`;
+              const originDisplay = `原点(${activeLevel.originX.toFixed(2)}, ${activeLevel.originY.toFixed(2)})`;
+              const rotationDisplay = activeLevel.rotation !== 0 ? `, 回転${activeLevel.rotation.toFixed(2)}°` : '';
+              
+              return `${levelDisplay}: ${activeLevel.name} | 縮尺${scaleDisplay} | ${originDisplay}${rotationDisplay}`;
+            })()}
+          </Text>
+        </Group>
+      </Paper>
       </div>
     </Box>
   );

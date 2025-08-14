@@ -11,6 +11,8 @@ import authRoutes from './routes/auth';
 import projectRoutes from './routes/projects';
 import drawingRoutes from './routes/drawings';
 import sxfRoutes from './routes/sxf';
+import memberRoutes from './routes/members';
+// import taskRoutes from './routes/tasks';
 
 // ミドルウェアのインポート
 import { authenticateToken } from './middleware/auth';
@@ -125,6 +127,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/projects', authenticateToken, projectRoutes);
 app.use('/api/drawings', authenticateToken, drawingRoutes);
 app.use('/api/sxf', authenticateToken, sxfRoutes);
+app.use('/api', authenticateToken, memberRoutes);
+// app.use('/api', authenticateToken, taskRoutes);
 
 // エラーハンドリングミドルウェア
 app.use(errorHandler);

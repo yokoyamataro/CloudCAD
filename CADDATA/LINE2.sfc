@@ -1,0 +1,132 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),
+        '2;1');
+FILE_NAME('LINE2.sfc',
+        '2025-8-14T9:33:57',
+        (''),
+        (''),
+        'SCADEC_API_Ver3.30$$3.0',
+        'TREND-ONE Ver.7',
+        '');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+
+/*SXF
+#10 = pre_defined_colour_feature(\'black\')
+SXF*/
+
+/*SXF
+#20 = pre_defined_colour_feature(\'red\')
+SXF*/
+
+/*SXF
+#30 = pre_defined_colour_feature(\'green\')
+SXF*/
+
+/*SXF
+#40 = pre_defined_colour_feature(\'yellow\')
+SXF*/
+
+/*SXF
+#50 = pre_defined_font_feature(\'continuous\')
+SXF*/
+
+/*SXF
+#60 = pre_defined_font_feature(\'dashed\')
+SXF*/
+
+/*SXF
+#70 = width_feature('0.180000')
+SXF*/
+
+/*SXF
+#80 = width_feature('0.500000')
+SXF*/
+
+/*SXF
+#90 = polyline_feature('0','0','0','0','5','(10.000000,30.000000,30.000000,10.000000,10.000000)','(-30.000000,-30.000000,-10.000000,-10.000000,-30.000000)')
+SXF*/
+
+/*SXF
+#100 = composite_curve_org_feature('2','1','2','0')
+SXF*/
+
+/*SXF
+#110 = externally_defined_hatch_feature('1',\'Area_control\','1','0','()')
+SXF*/
+
+/*SXF
+#120 = sfig_org_feature(\'$$ATRU$$1$$?w?i?F$$?F$$255_255_255\','3')
+SXF*/
+
+/*SXF
+#130 = line_feature('2','3','2','2','25.713457','162.929926','114.765576','194.808505')
+SXF*/
+
+/*SXF
+#140 = sfig_org_feature(\'?????????p???n\','2')
+SXF*/
+
+/*SXF
+#150 = line_feature('2','5','2','2','5000807.548646','5075654.291657','5062263.833894','5111234.953988')
+SXF*/
+
+/*SXF
+#160 = sfig_org_feature(\'?X??????\','2')
+SXF*/
+
+/*SXF
+#170 = line_feature('1','1','1','5','30030198.062162','-9926674.751479','30180000.000000','-9870000.000000')
+SXF*/
+
+/*SXF
+#180 = line_feature('1','2','1','5','30033623.883226','-9907946.929659','30173397.382660','-9853133.792626')
+SXF*/
+
+/*SXF
+#190 = line_feature('2','2','1','2','30033623.883226','-9885793.286775','30166774.128602','-9836004.687303')
+SXF*/
+
+/*SXF
+#200 = sfig_org_feature(\'???????\','2')
+SXF*/
+
+/*SXF
+#210 = line_feature('1','1','1','5','30.000000','60.000000','193.267145','109.638952')
+SXF*/
+
+/*SXF
+#220 = sfig_locate_feature('0',\'???????\','-30000.000000','10000.000000','0.00000000000000','0.00100000000000','0.00100000000000')
+SXF*/
+
+/*SXF
+#230 = sfig_locate_feature('0',\'?X??????\','-11938.248233','-7581.439779','347.417777777778','0.00200000000000','0.00200000000000')
+SXF*/
+
+/*SXF
+#240 = sfig_locate_feature('0',\'?????????p???n\','0.000000','0.000000','0.00000000000000','1.00000000000000','1.00000000000000')
+SXF*/
+
+/*SXF
+#250 = sfig_locate_feature('0',\'$$ATRU$$1$$?w?i?F$$?F$$255_255_255\','0.000000','0.000000','0.00000000000000','1.00000000000000','1.00000000000000')
+SXF*/
+
+/*SXF3
+#260 = drawing_attribute_feature(\' \',\' \',\' \',\' \',\' \',\' \',\' \','0','1','1',\' \',\' \')
+SXF3*/
+
+/*SXF
+#270 = drawing_sheet_feature(\'\','9','1','364','257')
+SXF*/
+
+/*SXF
+#280 = layer_feature(\'?????C??1\','1')
+SXF*/
+
+/*SXF
+#290 = layer_feature(\'?????C??2\','1')
+SXF*/
+ENDSEC;
+END-ISO-10303-21;

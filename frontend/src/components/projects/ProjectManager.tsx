@@ -38,16 +38,19 @@ import { ProjectCreateForm } from './ProjectCreateForm';
 import { ProjectDetail } from './ProjectDetail';
 import { ProjectMapViewer } from './ProjectMapViewer';
 import { AppHeader } from '../layout/AppHeader';
+import { TeamAndTaskManager } from '../TeamAndTaskManager';
 import type { Project } from '../../types/project';
 
 interface ProjectManagerProps {
   onProjectSelect: (project: Project) => void;
+  onSXFTest?: () => void;
 }
 
-export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect }) => {
+export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect, onSXFTest }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [showTeamManager, setShowTeamManager] = useState<Project | null>(null);
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [showAllProjects, setShowAllProjects] = useState(false);
 
@@ -347,6 +350,19 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect 
     }
   };
 
+  if (showTeamManager) {
+    return (
+      <TeamAndTaskManager
+        project={showTeamManager}
+        onBack={() => setShowTeamManager(null)}
+        onProjectUpdate={(updatedProject) => {
+          setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
+          setShowTeamManager(updatedProject);
+        }}
+      />
+    );
+  }
+
   if (selectedProject) {
     return (
       <ProjectDetail
@@ -356,6 +372,10 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect 
           setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
           setSelectedProject(updatedProject);
         }}
+        onTeamManagement={() => {
+          setSelectedProject(null);
+          setShowTeamManager(selectedProject);
+        }}
       />
     );
   }
@@ -364,6 +384,23 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect 
     <Box style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* アプリヘッダー */}
       <AppHeader onUserMenuClick={handleUserMenuClick} />
+      
+      {/* 開発テスト用ボタン */}
+      {onSXFTest && (
+        <Paper p="xs" style={{ borderRadius: 0, borderBottom: '1px solid #dee2e6' }}>
+          <Group justify="center">
+            <Button 
+              size="xs" 
+              variant="outline" 
+              color="orange"
+              leftSection={<IconFileText size="0.8rem" />}
+              onClick={onSXFTest}
+            >
+              SXF/SFC大容量ファイル読み込みテスト
+            </Button>
+          </Group>
+        </Paper>
+      )}
       
       {/* メインコンテンツ */}
       <Box style={{ display: 'flex', flex: 1 }}>
@@ -399,7 +436,7 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect 
       <Grid>
         {displayedProjects.map((project) => (
           <Grid.Col span={{ base: 12, md: 6, lg: 4 }} key={project.id}>
-            <Card shadow="sm" padding="lg" radius="md" withBorder>
+            <Card shadow="sm" padding="lg" radius="md" withBorder style={{ position: 'relative' }}>
               <Card.Section>
                 <Image
                   src={project.template.image}
@@ -439,15 +476,17 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect 
               </Stack>
 
               <Stack gap="xs">
-                <Button
-                  variant="filled"
-                  size="sm"
-                  leftSection={<IconEye size={16} />}
-                  onClick={() => onProjectSelect(project)}
-                  fullWidth
-                >
-                  編集
-                </Button>
+                <Group gap="xs">
+                  <Button
+                    variant="filled"
+                    size="sm"
+                    leftSection={<IconEye size={16} />}
+                    onClick={() => onProjectSelect(project)}
+                    style={{ flex: 1 }}
+                  >
+                    編集
+                  </Button>
+                </Group>
                 <Group gap="xs" grow>
                   <Button
                     variant="light"

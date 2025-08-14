@@ -4,12 +4,13 @@ import '@mantine/core/styles.css';
 import { ProjectManager } from './components/projects/ProjectManager';
 import { ProjectDetail } from './components/projects/ProjectDetail';
 import CADEditor from './components/cad/CADEditor';
+import SXFTester from './components/cad/SXFTester';
 import { CoordinateEditor } from './components/coordinates/CoordinateEditor';
 import { LotEditor } from './components/lots/LotEditor';
 import type { Project } from './types/project';
 
 interface AppState {
-  currentView: 'projects' | 'detail' | 'cad' | 'coordinate' | 'lot';
+  currentView: 'projects' | 'detail' | 'cad' | 'coordinate' | 'lot' | 'sxf-test';
   selectedProject: Project | null;
 }
 
@@ -52,6 +53,13 @@ function App() {
     });
   };
 
+  const handleSXFTest = () => {
+    setAppState(prev => ({
+      ...prev,
+      currentView: 'sxf-test'
+    }));
+  };
+
   const handleProjectUpdate = (project: Project) => {
     setAppState(prev => ({
       ...prev,
@@ -69,7 +77,7 @@ function App() {
     console.log('renderCurrentView called with currentView:', appState.currentView);
     switch (appState.currentView) {
       case 'projects':
-        return <ProjectManager onProjectSelect={handleProjectSelect} />;
+        return <ProjectManager onProjectSelect={handleProjectSelect} onSXFTest={handleSXFTest} />;
       
       case 'detail':
         return appState.selectedProject ? (
@@ -115,6 +123,13 @@ function App() {
           />
         ) : (
           <ProjectManager onProjectSelect={handleProjectSelect} />
+        );
+      
+      case 'sxf-test':
+        return (
+          <SXFTester
+            onClose={handleBackToProjects}
+          />
         );
       
       default:

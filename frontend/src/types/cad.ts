@@ -100,3 +100,22 @@ export interface MultiPageLayout {
   pageSpacing: number;
   padding: number;
 }
+
+export interface CADLevel {
+  id: string;
+  name: string;
+  levelNumber: number;  // 読込順の番号（1,2,3...）、$$ATRU$$は0番
+  originX: number;      // 原点X座標
+  originY: number;      // 原点Y座標
+  rotation: number;     // 回転角度（度）
+  scaleX: number;       // X方向縮尺
+  scaleY: number;       // Y方向縮尺
+  description?: string; // 説明
+  isActive?: boolean;   // アクティブレベル
+}
+
+export interface CADCoordinateSystem {
+  paperLevel: CADLevel;    // 用紙レベル（1/1, 0,0, 0度）
+  levels: CADLevel[];      // 作業レベル群
+  activeLevel: string;     // 現在アクティブなレベルID
+}

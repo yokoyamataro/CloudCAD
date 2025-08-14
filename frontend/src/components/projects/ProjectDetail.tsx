@@ -62,14 +62,16 @@ interface ProjectDetailProps {
   project: Project;
   onBack: () => void;
   onUpdate: (project: Project) => void;
-  onEditMode: (mode: 'cad' | 'coordinate' | 'lot') => void;
+  onEditMode?: (mode: 'cad' | 'coordinate' | 'lot') => void;
+  onTeamManagement?: () => void;
 }
 
 export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   project,
   onBack,
   onUpdate,
-  onEditMode
+  onEditMode,
+  onTeamManagement
 }) => {
   const [activeTab, setActiveTab] = useState<string | null>('overview');
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -567,6 +569,16 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
               >
                 メンバー管理
               </Button>
+              {onTeamManagement && (
+                <Button 
+                  variant="filled" 
+                  size="sm" 
+                  leftSection={<IconChecklist size={16} />}
+                  onClick={onTeamManagement}
+                >
+                  チーム・タスク管理
+                </Button>
+              )}
               <Button 
                 size="sm" 
                 leftSection={<IconChecklist size={16} />} 

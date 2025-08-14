@@ -17,6 +17,7 @@ model User {
   name      String
   password  String
   role      String   @default("user") // admin, surveyor, user
+  avatar    String?  // アバター画像URL
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
@@ -25,6 +26,9 @@ model User {
   drawings      Drawing[]
   surveyPoints  SurveyPoint[]
   modifications DrawingElement[]
+  createdTasks  Task[]         @relation("TaskCreator")
+  assignedTasks Task[]         @relation("TaskAssignee")
+  taskComments  TaskComment[]
 }
 
 // プロジェクト（測量案件・地籍調査案件）
@@ -46,6 +50,7 @@ model Project {
   surveyPoints    SurveyPoint[]
   boundaryLines   BoundaryLine[]
   landParcels     LandParcel[]
+  tasks           Task[]
 }
 
 // プロジェクト参加者
@@ -219,4 +224,48 @@ model ChangeHistory {
   
   @@index([projectId, timestamp])
   @@index([objectType, objectId])
+}
+
+// タスク管理
+model Task {
+  id             String   @id @default(cuid())
+  title          String
+  description    String?
+  status         String   @default("todo") // todo, in_progress, review, completed
+  priority       String   @default("medium") // low, medium, high, urgent
+  labels         String?  // ラベル（JSON配列）
+  estimatedHours Int?     // 予想工数（時間）
+  actualHours    Int?     // 実績工数（時間）
+  dueDate        DateTime?
+  projectId      String
+  assigneeId     String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee      User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdByUser User    @relation("TaskCreator", fields: [createdBy], references: [id])
+  comments      TaskComment[]
+  
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([priority])
+}
+
+// タスクコメント
+model TaskComment {
+  id        String   @id @default(cuid())
+  content   String
+  taskId    String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id])
+  
+  @@index([taskId])
+  @@index([authorId])
 }
