@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SXF座標変換テスト</title>
+    <meta charset="utf-8">
+</head>
+<body>
+    <h1>SXF座標変換テスト</h1>
+    <div id="output"></div>
+    
+    <script>
+    // SXF座標変換のテスト実装
+    function transformSXFToDrawing(sxfPoint, params) {
+        const { x0, y0, a, xs, ys } = params;
+        const { x: X, y: Y } = sxfPoint;
+        
+        // 角度をラジアンに変換
+        const theta = a * Math.PI / 180;
+        
+        // 三角関数を計算
+        const cosTheta = Math.cos(theta);
+        const sinTheta = Math.sin(theta);
+        
+        // 変換式を適用
+        const x = x0 + (xs * X) * cosTheta - (ys * Y) * sinTheta;
+        const y = y0 + (xs * X) * sinTheta + (ys * Y) * cosTheta;
+        
+        return { x, y };
+    }
+    
+    function runTests() {
+        const output = document.getElementById('output');
+        let results = '<h2>テスト結果</h2>';
+        
+        // テスト1: 基本的な変換（平行移動のみ）
+        results += '<h3>テスト1: 基本的な変換（平行移動のみ）</h3>';
+        const params1 = { x0: 100, y0: 200, a: 0, xs: 1, ys: 1 };
+        const sxfPoint1 = { x: 10, y: 20 };
+        const result1 = transformSXFToDrawing(sxfPoint1, params1);
+        const expected1 = { x: 110, y: 220 };
+        
+        results += `入力: (${sxfPoint1.x}, ${sxfPoint1.y})<br>`;
+        results += `パラメータ: 原点(${params1.x0}, ${params1.y0}) 回転${params1.a}° スケール(${params1.xs}, ${params1.ys})<br>`;
+        results += `結果: (${result1.x}, ${result1.y})<br>`;
+        results += `期待値: (${expected1.x}, ${expected1.y})<br>`;
+        results += `テスト結果: ${Math.abs(result1.x - expected1.x) < 0.001 && Math.abs(result1.y - expected1.y) < 0.001 ? 'PASS' : 'FAIL'}<br><br>`;
+        
+        // テスト2: スケール変換
+        results += '<h3>テスト2: スケール変換</h3>';
+        const params2 = { x0: 0, y0: 0, a: 0, xs: 2, ys: 3 };
+        const sxfPoint2 = { x: 10, y: 20 };
+        const result2 = transformSXFToDrawing(sxfPoint2, params2);
+        const expected2 = { x: 20, y: 60 };
+        
+        results += `入力: (${sxfPoint2.x}, ${sxfPoint2.y})<br>`;
+        results += `パラメータ: 原点(${params2.x0}, ${params2.y0}) 回転${params2.a}° スケール(${params2.xs}, ${params2.ys})<br>`;
+        results += `結果: (${result2.x}, ${result2.y})<br>`;
+        results += `期待値: (${expected2.x}, ${expected2.y})<br>`;
+        results += `テスト結果: ${Math.abs(result2.x - expected2.x) < 0.001 && Math.abs(result2.y - expected2.y) < 0.001 ? 'PASS' : 'FAIL'}<br><br>`;
+        
+        // テスト3: 回転変換
+        results += '<h3>テスト3: 回転変換</h3>';
+        const params3 = { x0: 0, y0: 0, a: 90, xs: 1, ys: 1 };
+        const sxfPoint3 = { x: 10, y: 0 };
+        const result3 = transformSXFToDrawing(sxfPoint3, params3);
+        const expected3 = { x: 0, y: 10 };
+        
+        results += `入力: (${sxfPoint3.x}, ${sxfPoint3.y})<br>`;
+        results += `パラメータ: 原点(${params3.x0}, ${params3.y0}) 回転${params3.a}° スケール(${params3.xs}, ${params3.ys})<br>`;
+        results += `結果: (${result3.x.toFixed(3)}, ${result3.y.toFixed(3)})<br>`;
+        results += `期待値: (${expected3.x}, ${expected3.y})<br>`;
+        results += `テスト結果: ${Math.abs(result3.x - expected3.x) < 0.001 && Math.abs(result3.y - expected3.y) < 0.001 ? 'PASS' : 'FAIL'}<br><br>`;
+        
+        // テスト4: 複合変換
+        results += '<h3>テスト4: 複合変換</h3>';
+        const params4 = { x0: 100, y0: 200, a: 45, xs: 2, ys: 1.5 };
+        const sxfPoint4 = { x: 10, y: 10 };
+        const result4 = transformSXFToDrawing(sxfPoint4, params4);
+        
+        results += `入力: (${sxfPoint4.x}, ${sxfPoint4.y})<br>`;
+        results += `パラメータ: 原点(${params4.x0}, ${params4.y0}) 回転${params4.a}° スケール(${params4.xs}, ${params4.ys})<br>`;
+        results += `結果: (${result4.x.toFixed(3)}, ${result4.y.toFixed(3)})<br>`;
+        results += `テスト結果: ${!isNaN(result4.x) && !isNaN(result4.y) ? 'PASS (値が有効)' : 'FAIL'}<br><br>`;
+        
+        // 実際のSXFパラメータ例
+        results += '<h3>実際のSXFパラメータ例</h3>';
+        const realParams = { x0: 1000.5, y0: 2000.3, a: 15.5, xs: 0.001, ys: 0.001 };
+        const realSxfPoint = { x: 50000, y: 80000 };
+        const realResult = transformSXFToDrawing(realSxfPoint, realParams);
+        
+        results += `入力: (${realSxfPoint.x}, ${realSxfPoint.y}) ※SXF内部座標<br>`;
+        results += `パラメータ: 原点(${realParams.x0}, ${realParams.y0}) 回転${realParams.a}° スケール(${realParams.xs}, ${realParams.ys})<br>`;
+        results += `結果: (${realResult.x.toFixed(3)}, ${realResult.y.toFixed(3)}) ※図面座標<br>`;
+        results += `テスト結果: ${!isNaN(realResult.x) && !isNaN(realResult.y) ? 'PASS (値が有効)' : 'FAIL'}<br><br>`;
+        
+        output.innerHTML = results;
+    }
+    
+    // テスト実行
+    runTests();
+    </script>
+</body>
+</html>

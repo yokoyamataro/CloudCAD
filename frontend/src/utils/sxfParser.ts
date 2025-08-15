@@ -3,6 +3,14 @@
  * 測量業界で使用されるSXF形式のCADデータを解析
  */
 
+import { 
+  transformSXFToDrawing, 
+  createTransformParamsFromLevel, 
+  type SXFTransformParams,
+  type SXFPoint,
+  type DrawingPoint
+} from './sxfCoordinateTransform';
+
 // SXF名前文字列の正規化
 const normalizeSXFName = (name: string): string => {
   const trimmed = name.replace(/'/g, '').trim();
@@ -154,17 +162,77 @@ export class SXFParser {
   }
 
   /**
+   * レベルグループ化を考慮した解析（公開メソッド）
+   * SXF座標から図面座標への変換を適用
+   */
+  parseWithLevelGrouping(fileContent: string): SXFData {
+    // データをリセット
+    this.data = {
+      header: {
+        description: '',
+        fileName: '',
+        schema: ''
+      },
+      elements: [],
+      levels: [],
+      paperSize: null,
+      statistics: {
+        totalElements: 0,
+        elementTypes: {},
+        coordinateRange: {
+          minX: Infinity,
+          maxX: -Infinity,
+          minY: Infinity,
+          maxY: -Infinity
+        }
+      }
+    };
+    
+    console.log('=== SXF レベルグループ化解析開始 ===');
+    
+    // 解析実行
+    const lines = fileContent.split('\n');
+    
+    // 基本的なヘッダー解析
+    for (const line of lines) {
+      if (line.startsWith('FILE_DESCRIPTION')) {
+        const match = line.match(/FILE_DESCRIPTION\(\('([^']+)'\)/);
+        if (match) this.data.header.description = match[1];
+      } else if (line.startsWith('FILE_NAME')) {
+        const match = line.match(/FILE_NAME\('([^']+)'/);
+        if (match) this.data.header.fileName = match[1];
+      } else if (line.startsWith('FILE_SCHEMA')) {
+        const match = line.match(/FILE_SCHEMA\(\('([^']+)'\)/);
+        if (match) this.data.header.schema = match[1];
+      }
+    }
+    
+    // レベルグループ化データ解析
+    this.parseDataWithLevelGrouping(lines);
+    
+    console.log('=== SXF レベルグループ化解析完了 ===');
+    return this.data;
+  }
+
+  /**
    * レベルグループ化を考慮したデータ解析
-   * feature系要素からsfig_org_featureまでを1つのレベルグループとして扱う
+   * feature要素 → sfig_org_feature の順でレベルを構成
+   * sfig_org_featureがない要素は用紙レベル
+   * 末尾のsfig_locate_featureでレベル名に対応するパラメータを適用
    */
   private parseDataWithLevelGrouping(lines: string[]): void {
-    let currentLevel: SXFLevel | null = null;
-    let currentLevelElements: SXFElement[] = [];
+    // レベル配列を初期化（重複防止）
+    this.data.levels = [];
+    
+    let pendingElements: SXFElement[] = []; // sfig_org_featureを待っている要素群
+    let paperLevelElements: SXFElement[] = []; // 用紙レベル要素
+    let levelGroups: Array<{name: string, elements: SXFElement[]}> = []; // レベルグループ
     let elementCount = 0;
     const maxElements = 1000; // パフォーマンステスト用の制限
     
     console.log('=== レベルグループ化解析開始 ===');
     
+    // 第1パス: 要素を読み込み、レベルグループに分類
     for (let i = 0; i < lines.length && elementCount < maxElements; i++) {
       const line = lines[i].trim();
       
@@ -176,54 +244,36 @@ export class SXFParser {
         const element = this.parseDataLine(line);
         if (!element) continue;
         
-        // sfig_org_featureを検出した場合、新しいレベルの開始
+        // sfig_org_featureを検出した場合、前の要素群をレベルグループとして確定
         if (element.type === 'sfig_org_feature') {
-          // 前のレベルが完了していれば処理
-          if (currentLevel && currentLevelElements.length > 0) {
-            this.finalizeLevelGroup(currentLevel, currentLevelElements);
-          }
-          
-          // 新しいレベルグループを開始
-          const levelName = normalizeSXFName(element.parameters[0] || '無名レベル');
-          const tempLevelNumber = this.data.levels.length;
-          
-          currentLevel = {
-            id: `level_${tempLevelNumber}`,
-            name: levelName,
-            levelNumber: tempLevelNumber,
-            originX: 0,
-            originY: 0,
-            rotation: 0,
-            scaleX: 1,
-            scaleY: 1
-          };
-          
-          currentLevelElements = [];
-          console.log(`新しいレベルグループ開始: ${levelName}`);
-        }
-        // sfig_locate_featureを検出した場合、レベル設定を適用
-        else if (element.type === 'sfig_locate_feature' && currentLevel) {
-          if (element.properties.cadLevel) {
-            const locateLevel = element.properties.cadLevel;
-            // 現在のレベルに座標設定を適用
-            currentLevel.originX = locateLevel.originX;
-            currentLevel.originY = locateLevel.originY;
-            currentLevel.rotation = locateLevel.rotation;
-            currentLevel.scaleX = locateLevel.scaleX;
-            currentLevel.scaleY = locateLevel.scaleY;
-            
-            console.log(`レベル設定適用: ${currentLevel.name} - 原点(${currentLevel.originX}, ${currentLevel.originY}), 縮尺(${currentLevel.scaleX}, ${currentLevel.scaleY}), 回転${currentLevel.rotation}°`);
+          if (pendingElements.length > 0) {
+            const levelName = normalizeSXFName(element.parameters[0] || '無名レベル');
+            levelGroups.push({
+              name: levelName,
+              elements: [...pendingElements]
+            });
+            console.log(`レベルグループ確定: ${levelName} (${pendingElements.length}要素)`);
+            // 要素の詳細をログ出力
+            pendingElements.forEach((elem, idx) => {
+              console.log(`  要素${idx + 1}: type=${elem.type}, id=${elem.id}, hasLineData=${elem.properties.hasLineData}`);
+            });
+            pendingElements = [];
           }
         }
-        // その他の要素は現在のレベルに追加
-        else if (currentLevel) {
-          currentLevelElements.push(element);
+        // sfig_locate_featureは後で処理するのでスキップ
+        else if (element.type === 'sfig_locate_feature') {
+          // 第2パスで処理
+        }
+        // その他の要素は一時的にpendingElementsに蓄積
+        else {
+          pendingElements.push(element);
           elementCount++;
         }
         
         // 全体の要素リストにも追加
         this.data.elements.push(element);
-        this.updateStatistics(element);
+        // 座標変換前なので座標統計の更新はしない
+        this.updateElementStatistics(element);
         
         // 用紙サイズ情報の保存
         if (element.properties.paperSize && !this.data.paperSize) {
@@ -232,9 +282,73 @@ export class SXFParser {
       }
     }
     
-    // 最後のレベルグループを処理
-    if (currentLevel && currentLevelElements.length > 0) {
-      this.finalizeLevelGroup(currentLevel, currentLevelElements);
+    // 最後にpendingElementsが残っていれば、用紙レベルとして処理
+    if (pendingElements.length > 0) {
+      paperLevelElements = [...pendingElements];
+      console.log(`用紙レベル要素: ${paperLevelElements.length}要素`);
+    }
+    
+    // 第2パス: sfig_locate_featureを読み込み、レベル名と変換パラメータを対応付け
+    const levelTransformParams: Map<string, SXFLevel> = new Map();
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      if (line.startsWith('/*SXF') || line === 'SXF*/') {
+        continue;
+      }
+      
+      if (line.startsWith('#') && line.includes('=')) {
+        const element = this.parseDataLine(line);
+        if (!element) continue;
+        
+        if (element.type === 'sfig_locate_feature' && element.properties.cadLevel) {
+          const locateLevel = element.properties.cadLevel;
+          levelTransformParams.set(locateLevel.name, locateLevel);
+          console.log(`変換パラメータ登録: ${locateLevel.name} - 原点(${locateLevel.originX}, ${locateLevel.originY}), 回転${locateLevel.rotation}°, スケール(${locateLevel.scaleX}, ${locateLevel.scaleY})`);
+        }
+      }
+    }
+    
+    // 第3パス: レベルグループを作成し、変換パラメータを適用
+    let levelCounter = 1;
+    for (const group of levelGroups) {
+      const transformParams = levelTransformParams.get(group.name);
+      if (transformParams) {
+        // 一意のIDを生成
+        transformParams.id = `level_${levelCounter}`;
+        transformParams.levelNumber = levelCounter;
+        this.finalizeLevelGroup(transformParams, group.elements);
+      } else {
+        // パラメータが見つからない場合はデフォルト変換
+        const defaultLevel: SXFLevel = {
+          id: `level_${levelCounter}`,
+          name: group.name,
+          levelNumber: levelCounter,
+          originX: 0,
+          originY: 0,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1
+        };
+        this.finalizeLevelGroup(defaultLevel, group.elements);
+      }
+      levelCounter++;
+    }
+    
+    // 用紙レベル要素を処理（変換パラメータなし）
+    if (paperLevelElements.length > 0) {
+      const paperLevel: SXFLevel = {
+        id: `level_paper_0`,
+        name: '用紙レベル',
+        levelNumber: 0,
+        originX: 0,
+        originY: 0,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1
+      };
+      this.finalizeLevelGroup(paperLevel, paperLevelElements);
     }
     
     console.log(`=== レベルグループ化解析完了: ${this.data.levels.length}レベル、${elementCount}要素 ===`);
@@ -249,10 +363,91 @@ export class SXFParser {
       element.levelId = level.id;
     });
     
-    // レベルをデータに追加
-    this.data.levels.push(level);
+    // SXF座標から図面座標への変換パラメータを作成
+    const transformParams = createTransformParamsFromLevel(level);
+    console.log(`座標変換パラメータ適用: ${level.name} - 原点(${transformParams.x0}, ${transformParams.y0}), 回転${transformParams.a}°, スケール(${transformParams.xs}, ${transformParams.ys})`);
     
-    console.log(`レベルグループ完了: ${level.name} (${elements.length}要素)`);
+    // 各要素の座標を図面座標に変換
+    elements.forEach(element => {
+      this.applyCoordinateTransformation(element, transformParams);
+      // 変換後の座標で統計を更新
+      this.updateCoordinateStatistics(element);
+    });
+    
+    // レベルをデータに追加（重複チェック）
+    const existingLevel = this.data.levels.find(l => l.id === level.id);
+    if (!existingLevel) {
+      this.data.levels.push(level);
+      console.log(`新しいレベル追加: ${level.id} - ${level.name}`);
+    } else {
+      console.log(`レベル重複スキップ: ${level.id} - ${level.name}`);
+    }
+    
+    console.log(`レベルグループ完了: ${level.name} (${elements.length}要素、座標変換適用済み)`);
+  }
+
+  /**
+   * 要素の座標を図面座標に変換
+   */
+  private applyCoordinateTransformation(element: SXFElement, transformParams: SXFTransformParams): void {
+    // line_featureの座標変換
+    if (element.properties.hasLineData && 
+        element.properties.startX !== undefined && element.properties.startY !== undefined &&
+        element.properties.endX !== undefined && element.properties.endY !== undefined) {
+      console.log(`line_feature座標変換前: (${element.properties.startX}, ${element.properties.startY}) -> (${element.properties.endX}, ${element.properties.endY})`);
+      
+      const startPoint: SXFPoint = { x: element.properties.startX, y: element.properties.startY };
+      const endPoint: SXFPoint = { x: element.properties.endX, y: element.properties.endY };
+      
+      const transformedStart = transformSXFToDrawing(startPoint, transformParams);
+      const transformedEnd = transformSXFToDrawing(endPoint, transformParams);
+      
+      element.properties.startX = transformedStart.x;
+      element.properties.startY = transformedStart.y;
+      element.properties.endX = transformedEnd.x;
+      element.properties.endY = transformedEnd.y;
+      
+      console.log(`line座標変換: (${startPoint.x},${startPoint.y})->(${endPoint.x},${endPoint.y}) → (${transformedStart.x.toFixed(3)},${transformedStart.y.toFixed(3)})->(${transformedEnd.x.toFixed(3)},${transformedEnd.y.toFixed(3)})`);
+    } else {
+      console.log(`line_feature座標変換スキップ: hasLineData=${element.properties.hasLineData}, coords defined=${element.properties.startX !== undefined && element.properties.startY !== undefined && element.properties.endX !== undefined && element.properties.endY !== undefined}`);
+    }
+    
+    // arc_featureの座標変換
+    if (element.properties.centerX !== undefined && element.properties.centerY !== undefined) {
+      const sxfPoint: SXFPoint = { x: element.properties.centerX, y: element.properties.centerY };
+      const drawingPoint = transformSXFToDrawing(sxfPoint, transformParams);
+      element.properties.centerX = drawingPoint.x;
+      element.properties.centerY = drawingPoint.y;
+      console.log(`arc座標変換: (${sxfPoint.x}, ${sxfPoint.y}) -> (${drawingPoint.x}, ${drawingPoint.y})`);
+    }
+    
+    // CARTESIAN_POINTの座標変換
+    if (element.properties.hasCoordinates && element.properties.x !== undefined && element.properties.y !== undefined) {
+      const sxfPoint: SXFPoint = { x: element.properties.x, y: element.properties.y };
+      const drawingPoint = transformSXFToDrawing(sxfPoint, transformParams);
+      element.properties.x = drawingPoint.x;
+      element.properties.y = drawingPoint.y;
+      console.log(`point座標変換: (${sxfPoint.x}, ${sxfPoint.y}) -> (${drawingPoint.x}, ${drawingPoint.y})`);
+    }
+    
+    // polyline_featureの座標変換
+    if (element.properties.hasPolylineData && element.properties.polylinePoints) {
+      const transformedPoints = element.properties.polylinePoints.map((point: {x: number, y: number}) => {
+        const sxfPoint: SXFPoint = { x: point.x, y: point.y };
+        return transformSXFToDrawing(sxfPoint, transformParams);
+      });
+      element.properties.polylinePoints = transformedPoints;
+      console.log(`polyline座標変換: ${element.properties.polylinePoints.length}点変換完了`);
+    }
+    
+    // text_featureの座標変換（テキストの位置座標がある場合）
+    if (element.properties.textX !== undefined && element.properties.textY !== undefined) {
+      const sxfPoint: SXFPoint = { x: element.properties.textX, y: element.properties.textY };
+      const drawingPoint = transformSXFToDrawing(sxfPoint, transformParams);
+      element.properties.textX = drawingPoint.x;
+      element.properties.textY = drawingPoint.y;
+      console.log(`text座標変換: (${sxfPoint.x}, ${sxfPoint.y}) -> (${drawingPoint.x}, ${drawingPoint.y})`);
+    }
   }
 
   private parseHeaderLine(line: string): void {
@@ -379,6 +574,34 @@ export class SXFParser {
         props.lineData = true;
         break;
         
+      case 'line_feature':
+        // 線分特徴の処理: レイヤ,色,線種,ペン,x1,x2,y1,y2
+        if (parameters.length >= 8) {
+          const layer = parameters[0].replace(/'/g, '');
+          const color = parameters[1].replace(/'/g, '');
+          const lineType = parameters[2].replace(/'/g, '');
+          const pen = parameters[3].replace(/'/g, '');
+          const x1 = parseFloat(parameters[4].replace(/'/g, ''));
+          const x2 = parseFloat(parameters[5].replace(/'/g, ''));
+          const y1 = parseFloat(parameters[6].replace(/'/g, ''));
+          const y2 = parseFloat(parameters[7].replace(/'/g, ''));
+          
+          if (!isNaN(x1) && !isNaN(x2) && !isNaN(y1) && !isNaN(y2)) {
+            props.layer = layer;
+            props.color = color;
+            props.lineType = lineType;
+            props.pen = pen;
+            props.startX = x1;
+            props.startY = y1;
+            props.endX = x2;
+            props.endY = y2;
+            props.hasLineData = true;
+            
+            console.log(`line_feature解析: レイヤ${layer} (${x1},${y1}) -> (${x2},${y2})`);
+          }
+        }
+        break;
+        
       case 'polyline_feature':
         // ポリライン特徴の処理
         if (parameters.length >= 6) {
@@ -462,11 +685,29 @@ export class SXFParser {
     return props;
   }
 
-  private updateStatistics(element: SXFElement): void {
+  /**
+   * 要素タイプの統計のみを更新（座標変換前）
+   */
+  private updateElementStatistics(element: SXFElement): void {
     this.data.statistics.totalElements++;
-    
+  }
+
+  /**
+   * 座標範囲の統計を更新（座標変換後）
+   */
+  private updateCoordinateStatistics(element: SXFElement): void {
     // 座標範囲の更新 - 複数のソースから座標を取得
     let coordinates: {x: number, y: number}[] = [];
+    
+    // line_featureから座標取得
+    if (element.properties.hasLineData && 
+        element.properties.startX !== undefined && element.properties.startY !== undefined &&
+        element.properties.endX !== undefined && element.properties.endY !== undefined) {
+      coordinates.push(
+        {x: element.properties.startX, y: element.properties.startY},
+        {x: element.properties.endX, y: element.properties.endY}
+      );
+    }
     
     // arc_featureから座標取得
     if (element.properties.centerX !== undefined && element.properties.centerY !== undefined) {
@@ -483,6 +724,11 @@ export class SXFParser {
       coordinates.push(...element.properties.polylinePoints);
     }
     
+    // text_featureから座標取得
+    if (element.properties.textX !== undefined && element.properties.textY !== undefined) {
+      coordinates.push({x: element.properties.textX, y: element.properties.textY});
+    }
+    
     // 座標範囲を更新
     coordinates.forEach(coord => {
       if (!isNaN(coord.x) && !isNaN(coord.y)) {
@@ -496,6 +742,7 @@ export class SXFParser {
 
   /**
    * 大きなファイルを段階的に読み込む（実装例）
+   * 注意: この方法では座標変換が適用されません。座標変換が必要な場合は parseWithLevelGrouping を使用してください。
    */
   async parseProgressively(fileContent: string, progressCallback?: (progress: number) => void): Promise<SXFData> {
     const lines = fileContent.split('\n');
@@ -514,7 +761,7 @@ export class SXFParser {
           const element = this.parseDataLine(line.trim());
           if (element) {
             this.data.elements.push(element);
-            this.updateStatistics(element);
+            this.updateElementStatistics(element);
             
             // 用紙サイズ情報の保存
             if (element.properties.paperSize && !this.data.paperSize) {

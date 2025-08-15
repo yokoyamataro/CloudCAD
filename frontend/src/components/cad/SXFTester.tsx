@@ -62,10 +62,9 @@ const SXFTester: React.FC<SXFTesterProps> = ({ onClose }) => {
       // パーサーで解析
       const parser = new SXFParser();
       
-      // 段階的解析でプログレス表示
-      const data = await parser.parseProgressively(content, (progressValue) => {
-        setProgress(progressValue);
-      });
+      // レベルグループ化解析で座標変換を適用
+      const data = parser.parseWithLevelGrouping(content);
+      setProgress(100);
 
       setResult(data);
       setSummary(parser.getSummary());
@@ -130,9 +129,8 @@ ENDSEC;
 END-ISO-10303-21;`;
 
       const parser = new SXFParser();
-      const data = await parser.parseProgressively(sampleContent, (progressValue) => {
-        setProgress(progressValue);
-      });
+      const data = parser.parseWithLevelGrouping(sampleContent);
+      setProgress(100);
 
       setResult(data);
       setSummary(parser.getSummary());

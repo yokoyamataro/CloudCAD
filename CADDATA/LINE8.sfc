@@ -1,0 +1,80 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('SCADEC level2 feature_mode'),
+        '2;1');
+FILE_NAME('LINE8.sfc',
+        '2025-8-15T9:30:20',
+        (''),
+        (''),
+        'SCADEC_API_Ver3.30$$3.0',
+        'TREND-ONE Ver.7',
+        '');
+FILE_SCHEMA(('ASSOCIATIVE_DRAUGHTING'));
+ENDSEC;
+DATA;
+
+/*SXF
+#10 = pre_defined_colour_feature(\'black\')
+SXF*/
+
+/*SXF
+#20 = pre_defined_colour_feature(\'red\')
+SXF*/
+
+/*SXF
+#30 = pre_defined_font_feature(\'continuous\')
+SXF*/
+
+/*SXF
+#40 = width_feature('0.130000')
+SXF*/
+
+/*SXF
+#50 = polyline_feature('0','0','0','0','5','(10.000000,30.000000,30.000000,10.000000,10.000000)','(-30.000000,-30.000000,-10.000000,-10.000000,-30.000000)')
+SXF*/
+
+/*SXF
+#60 = composite_curve_org_feature('2','1','1','0')
+SXF*/
+
+/*SXF
+#70 = externally_defined_hatch_feature('1',\'Area_control\','1','0','()')
+SXF*/
+
+/*SXF
+#80 = sfig_org_feature(\'$$ATRU$$1$$îwåiêF$$êF$$255_255_255\','3')
+SXF*/
+
+/*SXF
+#90 = line_feature('1','1','1','1','503660.254038','1013660.254038','590262.794416','1063660.254038')
+SXF*/
+
+/*SXF
+#100 = line_feature('1','2','1','1','498660.254038','1022320.508076','585262.794416','1072320.508076')
+SXF*/
+
+/*SXF
+#110 = sfig_org_feature(\'A\','2')
+SXF*/
+
+/*SXF
+#120 = sfig_locate_feature('0',\'A\','-933.012702','-616.025404','330.000000000000','0.00100000000000','0.00100000000000')
+SXF*/
+
+/*SXF
+#130 = sfig_locate_feature('0',\'$$ATRU$$1$$îwåiêF$$êF$$255_255_255\','0.000000','0.000000','0.00000000000000','1.00000000000000','1.00000000000000')
+SXF*/
+
+/*SXF3
+#140 = drawing_attribute_feature(\' \',\' \',\' \',\' \',\' \',\' \',\' \','0','1','1',\' \',\' \')
+SXF3*/
+
+/*SXF
+#150 = drawing_sheet_feature(\'\','9','1','364','257')
+SXF*/
+
+/*SXF
+#160 = layer_feature(\'çÏã∆ÉåÉCÉÑ1\','1')
+SXF*/
+ENDSEC;
+END-ISO-10303-21;

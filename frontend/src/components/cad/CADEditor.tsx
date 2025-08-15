@@ -125,6 +125,8 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   const [mouseCoords, setMouseCoords] = useState<{ x: number; y: number } | null>(null);
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
   const [editingElementProperties, setEditingElementProperties] = useState<CADElement | null>(null);
+  const [showElementDetails, setShowElementDetails] = useState(false);
+  const [selectedElementDetails, setSelectedElementDetails] = useState<CADElement | null>(null);
   
   // 現在の描画プロパティ
   const [currentDrawingProperties, setCurrentDrawingProperties] = useState({
@@ -1753,6 +1755,46 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           }
           return null;
           
+        case 'line_feature':
+          // 線分特徴の処理
+          console.log(`line_feature処理開始:`, sxfElement.properties);
+          if (sxfElement.properties.hasLineData && 
+              sxfElement.properties.startX !== undefined && sxfElement.properties.startY !== undefined &&
+              sxfElement.properties.endX !== undefined && sxfElement.properties.endY !== undefined) {
+            
+            const startX = sxfElement.properties.startX;
+            const startY = sxfElement.properties.startY;
+            const endX = sxfElement.properties.endX;
+            const endY = sxfElement.properties.endY;
+            
+            console.log(`line_feature変換: (${startX}, ${startY}) -> (${endX}, ${endY})`);
+            const cadElement = {
+              ...baseElement,
+              type: 'line',
+              points: [
+                { x: startX, y: startY },
+                { x: endX, y: endY }
+              ],
+              // SXF固有の情報を保持
+              layer: sxfElement.properties.layer,
+              color: sxfElement.properties.color,
+              lineType: sxfElement.properties.lineType,
+              pen: sxfElement.properties.pen,
+              sxfType: 'line_feature' // SXF要素タイプを記録
+            } as CADElement & {
+              layer?: string;
+              color?: string;
+              lineType?: string;
+              pen?: string;
+              sxfType?: string;
+            };
+            console.log(`line_feature CAD要素作成完了:`, cadElement);
+            return cadElement;
+          } else {
+            console.log(`line_feature変換スキップ: hasLineData=${sxfElement.properties.hasLineData}, 座標定義=${sxfElement.properties.startX !== undefined && sxfElement.properties.startY !== undefined && sxfElement.properties.endX !== undefined && sxfElement.properties.endY !== undefined}`);
+          }
+          return null;
+        
         case 'polyline_feature':
           // ポリライン特徴の処理
           if (sxfElement.properties.hasPolylineData && sxfElement.properties.polylinePoints) {
@@ -1761,8 +1803,20 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             return {
               ...baseElement,
               type: 'line',
-              points: points
-            } as CADElement;
+              points: points,
+              // SXF固有の情報を保持
+              layer: sxfElement.properties.layer,
+              color: sxfElement.properties.color,
+              lineType: sxfElement.properties.lineType,
+              pen: sxfElement.properties.pen,
+              sxfType: 'polyline_feature' // SXF要素タイプを記録
+            } as CADElement & {
+              layer?: string;
+              color?: string;
+              lineType?: string;
+              pen?: string;
+              sxfType?: string;
+            };
           }
           return null;
         
@@ -1803,17 +1857,23 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       const parser = new SXFParser();
       console.log('SFC/SXF解析開始...');
       
-      // 段階的解析でメモリ効率を向上（大きなファイル用）
-      const sxfData = await parser.parseProgressively(fileContent, (progress) => {
-        console.log(`解析進行: ${progress.toFixed(1)}%`);
-        // TODO: プログレスバー表示
-      });
+      // レベルグループ化解析で座標変換を適用
+      const sxfData = parser.parseWithLevelGrouping(fileContent);
 
       console.log('SFC/SXF解析完了:', sxfData.statistics);
+      console.log('SFC/SXF要素詳細:', sxfData.elements);
+      console.log('SFC/SXFレベル詳細:', sxfData.levels);
 
-      // CADレベル情報を処理
+      // CADレベル情報を処理（重複除去）
       if (sxfData.levels && sxfData.levels.length > 0) {
-        const newLevels: CADLevel[] = sxfData.levels.map((sxfLevel, index) => ({
+        // 重複するIDのレベルを除去
+        const uniqueLevels = sxfData.levels.filter((level, index, arr) => 
+          arr.findIndex(l => l.id === level.id) === index
+        );
+        
+        console.log(`SXFレベル処理: ${sxfData.levels.length}個 -> ${uniqueLevels.length}個（重複除去後）`);
+        
+        const newLevels: CADLevel[] = uniqueLevels.map((sxfLevel, index) => ({
           id: sxfLevel.id,
           name: sxfLevel.name || `レベル${index}`,
           levelNumber: sxfLevel.levelNumber,  // SXFParserで設定された番号を使用
@@ -2045,6 +2105,10 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       const hitElement = findElementAtPosition(pos.x, pos.y);
       if (hitElement) {
         setSelectedElement(hitElement.id);
+        
+        // シングルクリックで詳細表示
+        setSelectedElementDetails(hitElement);
+        setShowElementDetails(true);
         
         // ダブルクリック判定（detail === 2）
         if (e.detail === 2) {
@@ -3718,7 +3782,9 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                   value: coordinateSystem.paperLevel.id, 
                   label: `用紙: ${coordinateSystem.paperLevel.name}` 
                 },
-                ...coordinateSystem.levels.map(level => ({ 
+                ...coordinateSystem.levels.filter((level, index, arr) => 
+                  arr.findIndex(l => l.id === level.id) === index
+                ).map(level => ({ 
                   value: level.id, 
                   label: `レベル${level.levelNumber}: ${level.name} (1/${Math.round(1/level.scaleX)})` 
                 }))
@@ -4436,6 +4502,105 @@ export const CADEditor: React.FC<CADEditorProps> = ({
               </Button>
               <Button onClick={() => handleSaveElementProperties(editingElementProperties)}>
                 保存
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+
+      {/* 要素詳細表示モーダル */}
+      <Modal
+        opened={showElementDetails}
+        onClose={() => setShowElementDetails(false)}
+        title="要素詳細情報"
+        size="md"
+      >
+        {selectedElementDetails && (
+          <Stack gap="md">
+            <Group justify="space-between" align="center">
+              <Badge size="lg" variant="light" color="blue">
+                {(selectedElementDetails as any).sxfType === 'line_feature' ? 'Line Feature' : 
+                 (selectedElementDetails as any).sxfType === 'polyline_feature' ? 'Polyline Feature' :
+                 selectedElementDetails.type === 'line' ? '線分' : 
+                 selectedElementDetails.type}
+              </Badge>
+              <Text size="sm" c="dimmed">ID: {selectedElementDetails.id}</Text>
+            </Group>
+
+            <Table>
+              <Table.Tbody>
+                <Table.Tr>
+                  <Table.Td><Text fw={500}>レベル</Text></Table.Td>
+                  <Table.Td>
+                    {(() => {
+                      const elementLevel = coordinateSystem.levels.find(l => l.id === selectedElementDetails.levelId) || coordinateSystem.paperLevel;
+                      return `レベル${elementLevel.levelNumber}: ${elementLevel.name}`;
+                    })()}
+                  </Table.Td>
+                </Table.Tr>
+                <Table.Tr>
+                  <Table.Td><Text fw={500}>レイヤ</Text></Table.Td>
+                  <Table.Td>{(selectedElementDetails as any).layer || selectedElementDetails.layerId || 'デフォルト'}</Table.Td>
+                </Table.Tr>
+                <Table.Tr>
+                  <Table.Td><Text fw={500}>色</Text></Table.Td>
+                  <Table.Td>
+                    <Group gap="xs">
+                      <div 
+                        style={{
+                          width: 16,
+                          height: 16,
+                          backgroundColor: (selectedElementDetails as any).color || selectedElementDetails.style?.stroke || '#000000',
+                          border: '1px solid #ccc',
+                          borderRadius: 2
+                        }}
+                      />
+                      {(selectedElementDetails as any).color || selectedElementDetails.style?.stroke || '#000000'}
+                    </Group>
+                  </Table.Td>
+                </Table.Tr>
+                <Table.Tr>
+                  <Table.Td><Text fw={500}>線種</Text></Table.Td>
+                  <Table.Td>{(selectedElementDetails as any).lineType || '実線'}</Table.Td>
+                </Table.Tr>
+                <Table.Tr>
+                  <Table.Td><Text fw={500}>ペン</Text></Table.Td>
+                  <Table.Td>{(selectedElementDetails as any).pen || selectedElementDetails.style?.strokeWidth || 'デフォルト'}</Table.Td>
+                </Table.Tr>
+                {selectedElementDetails.points && selectedElementDetails.points.length > 0 && (
+                  <Table.Tr>
+                    <Table.Td><Text fw={500}>座標</Text></Table.Td>
+                    <Table.Td>
+                      <Stack gap="xs">
+                        {selectedElementDetails.points.map((point, index) => (
+                          <Text key={index} size="sm" ff="monospace">
+                            P{index + 1}: ({point.x.toFixed(3)}, {point.y.toFixed(3)})
+                          </Text>
+                        ))}
+                      </Stack>
+                    </Table.Td>
+                  </Table.Tr>
+                )}
+                {selectedElementDetails.createdAt && (
+                  <Table.Tr>
+                    <Table.Td><Text fw={500}>作成日時</Text></Table.Td>
+                    <Table.Td>{new Date(selectedElementDetails.createdAt).toLocaleString('ja-JP')}</Table.Td>
+                  </Table.Tr>
+                )}
+              </Table.Tbody>
+            </Table>
+
+            <Group justify="flex-end">
+              <Button variant="light" onClick={() => setShowElementDetails(false)}>
+                閉じる
+              </Button>
+              <Button 
+                onClick={() => {
+                  setShowElementDetails(false);
+                  handleEditElementProperties(selectedElementDetails.id);
+                }}
+              >
+                プロパティ編集
               </Button>
             </Group>
           </Stack>
