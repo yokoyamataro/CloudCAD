@@ -323,24 +323,85 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   const [editingTextElement, setEditingTextElement] = useState<CADElement | null>(null);
   // const [customPaperSize, setCustomPaperSize] = useState({ width: 400, height: 300 });
   
-  // レイヤー管理（OCF/SXF準拠）
+  // レイヤー管理（シンプル構成）
   const [layers, setLayers] = useState<CADLayer[]>([
-    { id: 'S-TOPO', name: '地形', visible: true, locked: false, description: '地形・地物' },
-    { id: 'S-STR', name: '構造物', visible: true, locked: false, description: '建物・構造物' },
-    { id: 'S-ROAD', name: '道路', visible: true, locked: false, description: '道路・交通施設' },
-    { id: 'S-RAIL', name: '鉄道', visible: true, locked: false, description: '鉄道施設' },
-    { id: 'S-RIVER', name: '河川', visible: true, locked: false, description: '河川・水系' },
-    { id: 'S-BOUND', name: '境界', visible: true, locked: false, description: '境界線' },
-    { id: 'S-POINT', name: '点要素', visible: true, locked: false, description: '基準点・測量点' },
-    { id: 'S-TEXT', name: '文字', visible: true, locked: false, description: '文字・注記' },
-    { id: 'S-BEZIER', name: 'ベジェ曲線', visible: true, locked: false, description: 'ベジェ曲線' },
-    { id: 'S-GRID', name: 'グリッド', visible: true, locked: false, description: '座標グリッド' }
+    { id: 'MAIN', name: 'メイン図面', visible: true, locked: false, description: 'メインの作図レイヤー' },
+    { id: 'REFERENCE', name: '参考図', visible: true, locked: false, description: '参考用の図面' },
+    { id: 'TEMPORARY', name: '一時作業', visible: true, locked: false, description: '一時的な作業用レイヤー' }
   ]);
-  const [activeLayer, setActiveLayer] = useState('S-TEXT');
+  const [activeLayer, setActiveLayer] = useState('MAIN');
   const [showLayerModal, setShowLayerModal] = useState(false);
+  const [showNewLayerModal, setShowNewLayerModal] = useState(false);
+  const [newLayerName, setNewLayerName] = useState('');
+  const [editingLayer, setEditingLayer] = useState<string | null>(null);
+  const [editingLayerName, setEditingLayerName] = useState('');
   
   // デフォルト描画色
   const [currentStrokeColor, setCurrentStrokeColor] = useState('#000000');
+
+  // レイヤー管理ハンドラー
+  const handleCreateNewLayer = () => {
+    if (newLayerName.trim()) {
+      const newLayerId = `L-${Date.now()}`;
+      const newLayer: CADLayer = {
+        id: newLayerId,
+        name: newLayerName.trim(),
+        visible: true,
+        locked: false,
+        description: `ユーザー作成レイヤー: ${newLayerName.trim()}`
+      };
+      setLayers(prev => [...prev, newLayer]);
+      setActiveLayer(newLayerId);
+      setNewLayerName('');
+      setShowNewLayerModal(false);
+    }
+  };
+
+  const handleEditLayer = (layerId: string) => {
+    const layer = layers.find(l => l.id === layerId);
+    if (layer) {
+      setEditingLayer(layerId);
+      setEditingLayerName(layer.name);
+    }
+  };
+
+  const handleSaveLayerEdit = () => {
+    if (editingLayer && editingLayerName.trim()) {
+      setLayers(prev => prev.map(layer => 
+        layer.id === editingLayer 
+          ? { ...layer, name: editingLayerName.trim() }
+          : layer
+      ));
+      setEditingLayer(null);
+      setEditingLayerName('');
+    }
+  };
+
+  const handleDeleteLayer = (layerId: string) => {
+    // デフォルトレイヤー（MAIN, REFERENCE, TEMPORARY）は削除不可
+    if (['MAIN', 'REFERENCE', 'TEMPORARY'].includes(layerId)) {
+      alert('デフォルトレイヤーは削除できません');
+      return;
+    }
+    
+    // 要素が存在するレイヤーは削除前に確認
+    const elementsInLayer = elements.filter(e => e.layerId === layerId);
+    if (elementsInLayer.length > 0) {
+      if (!confirm(`レイヤー内に${elementsInLayer.length}個の要素があります。削除しますか？`)) {
+        return;
+      }
+      // 要素も一緒に削除
+      setElements(prev => prev.filter(e => e.layerId !== layerId));
+    }
+    
+    setLayers(prev => prev.filter(layer => layer.id !== layerId));
+    
+    // アクティブレイヤーが削除された場合、別のレイヤーに切り替え
+    if (activeLayer === layerId) {
+      const remainingLayers = layers.filter(layer => layer.id !== layerId);
+      setActiveLayer(remainingLayers.length > 0 ? remainingLayers[0].id : 'MAIN');
+    }
+  };
   
   // 座標入力
   const [showCoordinateInput, setShowCoordinateInput] = useState(false);
@@ -1711,7 +1772,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     try {
       const baseElement = {
         id: `sxf_${sxfElement.id}_${index}`,
-        layerId: 'S-BOUND', // デフォルトレイヤー
+        layerId: 'MAIN', // デフォルトレイヤー
         style: {
           strokeColor: '#FF0000', // 赤色をデフォルト
           strokeWidth: 0.25,
@@ -2493,9 +2554,9 @@ export const CADEditor: React.FC<CADEditorProps> = ({
 
     // テキストツールの場合はテキスト入力モーダルを表示
     if (tool === 'text') {
-      // テキストツール使用時は自動的にテキストレイヤーに切り替え
-      if (activeLayer !== 'S-TEXT') {
-        setActiveLayer('S-TEXT');
+      // テキストツール使用時はメインレイヤーを使用
+      if (activeLayer !== 'MAIN') {
+        setActiveLayer('MAIN');
       }
       const rect = canvasRef.current?.getBoundingClientRect();
       if (rect) {
@@ -2976,7 +3037,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     const issues: string[] = [];
     
     // 必須レイヤーのチェック
-    const requiredLayers = ['S-BOUND', 'S-POINT', 'S-TEXT'];
+    const requiredLayers = ['MAIN'];
     const presentLayers = layers.filter(l => l.visible).map(l => l.id);
     const missingLayers = requiredLayers.filter(layer => !presentLayers.includes(layer));
     
@@ -3111,7 +3172,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     
     // SXF準拠のレイヤー構造
     const sxfLayers = layers.map(layer => ({
-      name: layer.id, // S-TOPO, S-STR等のOCF準拠レイヤー名
+      name: layer.id, // レイヤー名
       description: layer.description,
       visible: layer.visible,
       elements: elements.filter(e => e.layerId === layer.id)
@@ -3153,7 +3214,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         
         const importedElements: CADElement[] = [];
         let currentEntity: any = null;
-        let currentLayer = 'S-BOUND';
+        let currentLayer = 'MAIN';
         
         for (let i = 0; i < lines.length; i++) {
           const code = lines[i].trim();
@@ -3200,7 +3261,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             currentEntity = { type: value };
           } else if (code === '8' && value) {
             // レイヤー名
-            currentLayer = layers.find(l => l.name === value)?.id || 'S-BOUND';
+            currentLayer = layers.find(l => l.name === value)?.id || 'MAIN';
           } else if (currentEntity) {
             // エンティティの属性
             switch (code) {
@@ -3897,14 +3958,24 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           <Group>
             {/* レイヤー選択 */}
             <Select
-              data={layers.filter(l => l.visible).map(l => ({ value: l.id, label: l.name }))}
+              data={[
+                ...layers.filter(l => l.visible).map(l => ({ value: l.id, label: l.name })),
+                { value: '___new___', label: '+ 新規作成' }
+              ]}
               value={activeLayer}
-              onChange={(value) => setActiveLayer(value || 'S-TEXT')}
+              onChange={(value) => {
+                if (value === '___new___') {
+                  console.log('新規レイヤー作成を開始');
+                  setShowNewLayerModal(true);
+                } else {
+                  setActiveLayer(value || 'MAIN');
+                }
+              }}
               placeholder="レイヤー"
               w={120}
               size="xs"
               styles={{
-                dropdown: { zIndex: 1001 }
+                dropdown: { zIndex: 999 }
               }}
             />
             
@@ -4120,7 +4191,52 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                         {layer.visible ? <IconEye size={16} /> : <IconEyeOff size={16} />}
                       </ActionIcon>
                       <Stack gap={0}>
-                        <Text fw={500}>{layer.name}</Text>
+                        {editingLayer === layer.id ? (
+                          <TextInput
+                            value={editingLayerName}
+                            onChange={(e) => setEditingLayerName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleSaveLayerEdit();
+                              } else if (e.key === 'Escape') {
+                                setEditingLayer(null);
+                                setEditingLayerName('');
+                              }
+                            }}
+                            onBlur={handleSaveLayerEdit}
+                            size="xs"
+                            autoFocus
+                          />
+                        ) : (
+                          <Menu shadow="md" width={150}>
+                            <Menu.Target>
+                              <Text 
+                                fw={500} 
+                                style={{ cursor: 'context-menu' }}
+                                onContextMenu={(e) => e.preventDefault()}
+                              >
+                                {layer.name}
+                              </Text>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                              <Menu.Item 
+                                leftSection={<IconEdit size={14} />}
+                                onClick={() => handleEditLayer(layer.id)}
+                              >
+                                名前を編集
+                              </Menu.Item>
+                              {!['MAIN', 'REFERENCE', 'TEMPORARY'].includes(layer.id) && (
+                                <Menu.Item 
+                                  leftSection={<IconTrash size={14} />}
+                                  onClick={() => handleDeleteLayer(layer.id)}
+                                  color="red"
+                                >
+                                  レイヤーを削除
+                                </Menu.Item>
+                              )}
+                            </Menu.Dropdown>
+                          </Menu>
+                        )}
                         <Text size="xs" c="dimmed">{layer.description}</Text>
                       </Stack>
                     </Group>
@@ -4769,6 +4885,64 @@ export const CADEditor: React.FC<CADEditorProps> = ({
               disabled={!textInput.trim()}
             >
               {editingTextElement ? "更新" : "作成"}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* 新規レイヤー作成モーダル */}
+      {console.log('モーダル状態:', showNewLayerModal)}
+      <Modal
+        opened={showNewLayerModal}
+        onClose={() => {
+          setShowNewLayerModal(false);
+          setNewLayerName('');
+        }}
+        title="新規レイヤー作成"
+        size="md"
+        centered
+        zIndex={1002}
+        withinPortal={false}
+        overlayProps={{
+          backgroundOpacity: 0.55,
+          blur: 3,
+        }}
+        styles={{
+          header: { zIndex: 1003 },
+          body: { zIndex: 1003 },
+          content: { zIndex: 1003 },
+          overlay: { zIndex: 1002 }
+        }}
+      >
+        <Stack spacing="md">
+          <TextInput
+            label="レイヤー名"
+            placeholder="レイヤー名を入力してください"
+            value={newLayerName}
+            onChange={(e) => setNewLayerName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newLayerName.trim()) {
+                handleCreateNewLayer();
+              }
+            }}
+            autoFocus
+          />
+          
+          <Group justify="flex-end" mt="md">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowNewLayerModal(false);
+                setNewLayerName('');
+              }}
+            >
+              キャンセル
+            </Button>
+            <Button 
+              onClick={handleCreateNewLayer}
+              disabled={!newLayerName.trim()}
+            >
+              作成
             </Button>
           </Group>
         </Stack>
