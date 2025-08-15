@@ -24,10 +24,10 @@ interface CADMenuProps {
 const CADMenu: React.FC<CADMenuProps> = ({ projectId, onToolSelect }) => {
   const [activeTab, setActiveTab] = useState('files');
   const [layers, setLayers] = useState([
-    { id: '1', name: '境界線', visible: true, color: '#FF0000', type: 'boundary' },
+    { id: '1', name: '点要素', visible: true, color: '#FF0000', type: 'point' },
     { id: '2', name: '建物', visible: true, color: '#00FF00', type: 'building' },
     { id: '3', name: '道路', visible: true, color: '#0000FF', type: 'road' },
-    { id: '4', name: '測量点', visible: true, color: '#FF00FF', type: 'survey_point' },
+    { id: '4', name: 'テキスト', visible: true, color: '#FF00FF', type: 'text' },
   ]);
 
   const toggleLayerVisibility = (layerId: string) => {
@@ -38,7 +38,10 @@ const CADMenu: React.FC<CADMenuProps> = ({ projectId, onToolSelect }) => {
 
   const cadTools = [
     { id: 'select', name: '選択', icon: '↗️', description: 'オブジェクトを選択' },
-    { id: 'line', name: '線分', icon: '📏', description: '直線を描画' },
+    { id: 'line', name: '線分', icon: '📏', description: '直線を描画（標準）' },
+    { id: 'line-thin', name: '細線', icon: '🦲', description: '細い線を描画' },
+    { id: 'line-thick', name: '太線', icon: '🖊️', description: '太い線を描画' },
+    { id: 'line-bold', name: '極太線', icon: '🖍️', description: '極太線を描画' },
     { id: 'polyline', name: '連続線', icon: '〰️', description: '連続した線を描画' },
     { id: 'rectangle', name: '矩形', icon: '▢', description: '長方形を描画' },
     { id: 'circle', name: '円', icon: '○', description: '円を描画' },
@@ -108,25 +111,16 @@ const CADMenu: React.FC<CADMenuProps> = ({ projectId, onToolSelect }) => {
             </div>
 
             <div>
-              <h3 className="text-sm font-medium mb-3">測量ツール</h3>
+              <h3 className="text-sm font-medium mb-3">点要素ツール</h3>
               <div className="space-y-2">
                 <Button 
                   variant="outline" 
                   size="sm" 
                   className="w-full justify-start"
-                  onClick={() => onToolSelect?.('survey_point')}
+                  onClick={() => onToolSelect?.('point')}
                 >
                   <MapPin className="w-4 h-4 mr-2" />
-                  測量点配置
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="w-full justify-start"
-                  onClick={() => onToolSelect?.('boundary_line')}
-                >
-                  <Ruler className="w-4 h-4 mr-2" />
-                  境界線描画
+                  点配置（基準点・測量点）
                 </Button>
               </div>
             </div>

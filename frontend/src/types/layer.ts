@@ -6,8 +6,10 @@ export interface Layer {
   color: string;
   lineType: string;
   lineWidth: number;
+  level: number;
   visible: boolean;
   locked: boolean;
+  editable: boolean;
   order: number;
   projectId?: string;
   createdAt: string;
@@ -25,8 +27,10 @@ export interface CreateLayerRequest {
   color?: string;
   lineType?: string;
   lineWidth?: number;
+  level?: number;
   visible?: boolean;
   locked?: boolean;
+  editable?: boolean;
   projectId: string;
 }
 
@@ -35,8 +39,10 @@ export interface UpdateLayerRequest {
   color?: string;
   lineType?: string;
   lineWidth?: number;
+  level?: number;
   visible?: boolean;
   locked?: boolean;
+  editable?: boolean;
   order?: number;
 }
 
@@ -47,6 +53,10 @@ export const STANDARD_LAYERS = [
     color: '#FF0000',
     lineType: 'solid',
     lineWidth: 1.0,
+    level: 1,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '三角点、水準点、基準点等'
   },
   {
@@ -54,6 +64,10 @@ export const STANDARD_LAYERS = [
     color: '#00FF00',
     lineType: 'solid',
     lineWidth: 1.0,
+    level: 2,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '筆界点、境界標識等'
   },
   {
@@ -61,6 +75,10 @@ export const STANDARD_LAYERS = [
     color: '#000000',
     lineType: 'solid',
     lineWidth: 2.0,
+    level: 3,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '確定した筆界線'
   },
   {
@@ -68,6 +86,10 @@ export const STANDARD_LAYERS = [
     color: '#808080',
     lineType: 'dashed',
     lineWidth: 1.5,
+    level: 4,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '推定される筆界線'
   },
   {
@@ -75,6 +97,10 @@ export const STANDARD_LAYERS = [
     color: '#8B4513',
     lineType: 'solid',
     lineWidth: 1.5,
+    level: 5,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '建物の輪郭'
   },
   {
@@ -82,6 +108,10 @@ export const STANDARD_LAYERS = [
     color: '#FFFF00',
     lineType: 'solid',
     lineWidth: 2.0,
+    level: 6,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '道路の中心線・境界線'
   },
   {
@@ -89,6 +119,10 @@ export const STANDARD_LAYERS = [
     color: '#0000FF',
     lineType: 'solid',
     lineWidth: 1.5,
+    level: 7,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '河川、水路、池等'
   },
   {
@@ -96,6 +130,10 @@ export const STANDARD_LAYERS = [
     color: '#000000',
     lineType: 'solid',
     lineWidth: 1.0,
+    level: 8,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '地番の表示'
   },
   {
@@ -103,6 +141,10 @@ export const STANDARD_LAYERS = [
     color: '#FF00FF',
     lineType: 'solid',
     lineWidth: 0.5,
+    level: 9,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '距離、面積等の寸法'
   },
   {
@@ -110,6 +152,10 @@ export const STANDARD_LAYERS = [
     color: '#008000',
     lineType: 'solid',
     lineWidth: 1.0,
+    level: 10,
+    visible: true,
+    locked: false,
+    editable: true,
     description: '説明文、注記等'
   }
 ] as const;

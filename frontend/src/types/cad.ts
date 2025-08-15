@@ -7,7 +7,7 @@ export interface CADPoint {
 
 export interface CADElement {
   id: string;
-  type: 'line' | 'circle' | 'rectangle' | 'text' | 'comment' | 'dimension' | 'point' | 'survey_point' | 'boundary_line' | 'contour_line' | 'benchmark' | 'traverse_line' | 'control_point' | 'building_outline';
+  type: 'line' | 'circle' | 'rectangle' | 'text' | 'comment' | 'dimension' | 'point' | 'building_outline' | 'bezier';
   layerId: string;
   points: CADPoint[];
   properties: {
@@ -16,7 +16,9 @@ export interface CADElement {
     fill?: string;
     text?: string;
     fontSize?: number;
-    // 測量専用プロパティ
+    fontName?: string;         // フォント名（MSゴシック等）
+    // 点要素専用プロパティ（基準点・測量点統合）
+    pointType?: 'survey' | 'benchmark';  // 点種別（測量点・水準点）
     pointNumber?: string;      // 点番号
     elevation?: number;        // 標高
     accuracy?: string;         // 精度等級
@@ -27,6 +29,9 @@ export interface CADElement {
     azimuth?: number;          // 方位角
     buildingType?: string;     // 建物種別
     rotation?: number;         // 回転角度
+    // ベジェ曲線専用プロパティ
+    controlPoints?: CADPoint[];  // 制御点配列
+    smooth?: boolean;          // スムージング有効/無効
   };
   // SXF/P21エクスポート用の追加プロパティ
   startX?: number;
@@ -79,7 +84,6 @@ export interface CADLayer {
   name: string;
   visible: boolean;
   locked: boolean;
-  color: string;
   description?: string;
 }
 

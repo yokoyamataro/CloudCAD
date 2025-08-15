@@ -54,7 +54,8 @@ import {
   IconFolderOpen,
   IconFileImport,
   IconFileExport,
-  IconDatabase
+  IconDatabase,
+  IconWaveSine
 } from '@tabler/icons-react';
 // import { P21Parser } from '../../modules/sxf/P21Parser';
 // import { P21Exporter } from '../../modules/sxf/P21Exporter';
@@ -122,6 +123,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [elements, setElements] = useState<CADElement[]>(initialData);
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [mouseCoords, setMouseCoords] = useState<{ x: number; y: number } | null>(null);
   const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
   const [editingElementProperties, setEditingElementProperties] = useState<CADElement | null>(null);
@@ -278,18 +280,16 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   
   const getTypeLabel = (type: string) => {
     switch (type) {
-      case 'benchmark': return '基準点';
-      case 'control_point': return '制御点';
-      case 'boundary_point': return '境界点';
+      case 'survey': return '測量点';
+      case 'benchmark': return '水準点';
       default: return type;
     }
   };
   
   const getTypeBadgeColor = (type: string) => {
     switch (type) {
-      case 'benchmark': return 'blue';
-      case 'control_point': return 'green';
-      case 'boundary_point': return 'orange';
+      case 'survey': return 'blue';
+      case 'benchmark': return 'green';
       default: return 'gray';
     }
   };
@@ -313,23 +313,34 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   const [commentPosition, setCommentPosition] = useState<{x: number, y: number} | null>(null);
   const [showCommentInput, setShowCommentInput] = useState(false);
   const [showPaperModal, setShowPaperModal] = useState(false);
+  
+  // テキスト入力関連
+  const [showTextModal, setShowTextModal] = useState(false);
+  const [textPosition, setTextPosition] = useState<{x: number, y: number} | null>(null);
+  const [textInput, setTextInput] = useState('');
+  const [textFontSize, setTextFontSize] = useState(12);
+  const [textFontName, setTextFontName] = useState('MS Gothic');
+  const [editingTextElement, setEditingTextElement] = useState<CADElement | null>(null);
   // const [customPaperSize, setCustomPaperSize] = useState({ width: 400, height: 300 });
   
   // レイヤー管理（OCF/SXF準拠）
   const [layers, setLayers] = useState<CADLayer[]>([
-    { id: 'S-TOPO', name: '地形', visible: true, locked: false, color: '#808080', description: '地形・地物' },
-    { id: 'S-STR', name: '構造物', visible: true, locked: false, color: '#0000FF', description: '建物・構造物' },
-    { id: 'S-ROAD', name: '道路', visible: true, locked: false, color: '#FF8000', description: '道路・交通施設' },
-    { id: 'S-RAIL', name: '鉄道', visible: true, locked: false, color: '#800080', description: '鉄道施設' },
-    { id: 'S-RIVER', name: '河川', visible: true, locked: false, color: '#0080FF', description: '河川・水系' },
-    { id: 'S-BOUND', name: '境界', visible: true, locked: false, color: '#FF0000', description: '境界線' },
-    { id: 'S-POINT', name: '基準点', visible: true, locked: false, color: '#FF0000', description: '基準点・測量点' },
-    { id: 'S-TEXT', name: '文字', visible: true, locked: false, color: '#000000', description: '文字・注記' },
-    { id: 'S-CONT', name: '等高線', visible: true, locked: false, color: '#804000', description: '等高線' },
-    { id: 'S-GRID', name: 'グリッド', visible: true, locked: false, color: '#C0C0C0', description: '座標グリッド' }
+    { id: 'S-TOPO', name: '地形', visible: true, locked: false, description: '地形・地物' },
+    { id: 'S-STR', name: '構造物', visible: true, locked: false, description: '建物・構造物' },
+    { id: 'S-ROAD', name: '道路', visible: true, locked: false, description: '道路・交通施設' },
+    { id: 'S-RAIL', name: '鉄道', visible: true, locked: false, description: '鉄道施設' },
+    { id: 'S-RIVER', name: '河川', visible: true, locked: false, description: '河川・水系' },
+    { id: 'S-BOUND', name: '境界', visible: true, locked: false, description: '境界線' },
+    { id: 'S-POINT', name: '点要素', visible: true, locked: false, description: '基準点・測量点' },
+    { id: 'S-TEXT', name: '文字', visible: true, locked: false, description: '文字・注記' },
+    { id: 'S-BEZIER', name: 'ベジェ曲線', visible: true, locked: false, description: 'ベジェ曲線' },
+    { id: 'S-GRID', name: 'グリッド', visible: true, locked: false, description: '座標グリッド' }
   ]);
-  const [activeLayer, setActiveLayer] = useState('S-BOUND');
+  const [activeLayer, setActiveLayer] = useState('S-TEXT');
   const [showLayerModal, setShowLayerModal] = useState(false);
+  
+  // デフォルト描画色
+  const [currentStrokeColor, setCurrentStrokeColor] = useState('#000000');
   
   // 座標入力
   const [showCoordinateInput, setShowCoordinateInput] = useState(false);
@@ -864,6 +875,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     );
   }, [paperSettings, worldToScreen, zoom]);
   const drawElements = useCallback((ctx: CanvasRenderingContext2D) => {
+    console.log('drawElements 開始: 要素数=', elements.length);
     elements.forEach(element => {
       const layer = layers.find(l => l.id === element.layerId);
       if (!layer || !layer.visible) return;
@@ -874,15 +886,27 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       
       // sxfAttributesから線幅を取得
       const baseLineWidth = element.sxfAttributes?.lineWidth || element.style?.strokeWidth || element.properties?.strokeWidth || 1;
-      // ズームレベルに関係なく適切な線の太さを保持
-      // 大きな座標系でのズーム対応：最小1ピクセル、最大5ピクセル
+      
+      // 線幅の違いを明確にするための計算
+      // baseLineWidthを基準に、より幅広い範囲で線幅を設定
+      let calculatedLineWidth;
+      
       if (zoom < 0.1) {
-        // 非常に小さなズーム（大きな座標系）の場合
-        ctx.lineWidth = Math.max(1, Math.min(5, baseLineWidth * 2));
+        // 非常に小さなズーム時は線幅を強調
+        calculatedLineWidth = Math.max(0.5, baseLineWidth * 3);
+      } else if (zoom < 0.5) {
+        // 小さなズーム時
+        calculatedLineWidth = Math.max(0.5, baseLineWidth * 2);
+      } else if (zoom < 2.0) {
+        // 通常のズーム時
+        calculatedLineWidth = Math.max(0.5, baseLineWidth * 1.5);
       } else {
-        // 通常のズーム範囲
-        ctx.lineWidth = Math.max(1, Math.min(4, baseLineWidth / Math.max(1, zoom / 2)));
+        // 大きなズーム時
+        calculatedLineWidth = Math.max(0.5, baseLineWidth);
       }
+      
+      // 最終的な線幅を設定（0.5～10ピクセルの範囲）
+      ctx.lineWidth = Math.max(0.5, Math.min(10, calculatedLineWidth));
       
       // 線種パターンを設定
       const lineType = element.sxfAttributes?.lineType || 'solid';
@@ -1024,30 +1048,44 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           }
           break;
 
-        case 'contour_line':
+        case 'bezier':
           if (element.points?.length >= 2) {
-            // 等高線
-            ctx.strokeStyle = element.style?.strokeColor || '#FF0000';
-            ctx.lineWidth = 1;
+            // ベジェ曲線
+            ctx.strokeStyle = element.style?.strokeColor || '#804000';
+            ctx.lineWidth = element.style?.strokeWidth || 1;
             
             ctx.beginPath();
-            const startScreen = worldToScreen(element.points[0].x, element.points[0].y);
-            ctx.moveTo(startScreen.x, startScreen.y);
+            const points = element.points.map(p => worldToScreen(p.x, p.y));
             
-            for (let i = 1; i < element.points?.length; i++) {
-              const pointScreen = worldToScreen(element.points[i].x, element.points[i].y);
-              ctx.lineTo(pointScreen.x, pointScreen.y);
+            ctx.moveTo(points[0].x, points[0].y);
+            
+            if (points.length >= 4) {
+              // 4点以上の場合：4点ずつ三次ベジェ曲線を描画
+              for (let i = 0; i < points.length - 3; i += 3) {
+                const p0 = points[i];
+                const cp1 = points[i + 1];
+                const cp2 = points[i + 2];
+                const p1 = points[i + 3];
+                
+                if (i === 0) {
+                  ctx.moveTo(p0.x, p0.y);
+                }
+                ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, p1.x, p1.y);
+              }
+            } else if (points.length === 3) {
+              // 3点の場合は制御点を複製して三次ベジェ曲線に変換
+              ctx.bezierCurveTo(points[1].x, points[1].y, points[1].x, points[1].y, points[2].x, points[2].y);
+            } else if (points.length === 2) {
+              // 2点の場合は直線として三次ベジェ曲線で描画
+              const dx = (points[1].x - points[0].x) / 3;
+              const dy = (points[1].y - points[0].y) / 3;
+              ctx.bezierCurveTo(
+                points[0].x + dx, points[0].y + dy,
+                points[0].x + 2 * dx, points[0].y + 2 * dy,
+                points[1].x, points[1].y
+              );
             }
             ctx.stroke();
-            
-            // 標高値表示
-            if (element.properties.elevation) {
-              const midPoint = Math.floor(element.points?.length / 2);
-              const midScreen = worldToScreen(element.points[midPoint].x, element.points[midPoint].y);
-              ctx.fillStyle = '#804000';
-              ctx.font = '9px Arial';
-              ctx.fillText(`EL=${element.properties.elevation.toFixed(2)}`, midScreen.x + 5, midScreen.y - 5);
-            }
           }
           break;
 
@@ -1153,9 +1191,35 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         case 'text':
           if (element.points?.length >= 1 && element.properties.text) {
             const pointScreen = worldToScreen(element.points[0].x, element.points[0].y);
-            ctx.fillStyle = element.style?.strokeColor || '#FF0000';
-            ctx.font = `${(element.properties.fontSize || 12) * zoom}px Arial`;
+            
+            // テキストカラーを設定（優先順位: properties.stroke > style.strokeColor > デフォルト）
+            const textColor = element.properties.stroke || 
+                             element.style?.strokeColor || 
+                             '#000000';
+            ctx.fillStyle = textColor;
+            
+            // フォント設定
+            const fontSize = (element.properties.fontSize || 12) * zoom;
+            const fontName = element.properties.fontName || 'MS Gothic';
+            ctx.font = `${fontSize}px "${fontName}", Arial, sans-serif`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            
+            // テキスト描画
             ctx.fillText(element.properties.text, pointScreen.x, pointScreen.y);
+            
+            // 選択時のハイライト
+            if (selectedElementIds.includes(element.id)) {
+              const textMetrics = ctx.measureText(element.properties.text);
+              const textWidth = textMetrics.width;
+              const textHeight = fontSize;
+              
+              ctx.strokeStyle = '#0066CC';
+              ctx.lineWidth = 1;
+              ctx.setLineDash([5, 5]);
+              ctx.strokeRect(pointScreen.x - 2, pointScreen.y - textHeight - 2, textWidth + 4, textHeight + 4);
+              ctx.setLineDash([]);
+            }
           }
           break;
           
@@ -1415,7 +1479,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         ctx.fillText(label, mousePos.x + 15, mousePos.y - 10);
       }
     }
-  }, [drawGrid, drawElements, drawPaper, isDrawing, currentPath, isLineDrawing, linePoints, previewPoint, tool, worldToScreen, zoom, mousePos, findSnapPoint]);
+  }, [elements, layers, isDrawing, currentPath, isLineDrawing, linePoints, previewPoint, tool, zoom, pan, paperSettings, showGrid, mousePos]);
 
   // キャンバスリサイズ処理
   useEffect(() => {
@@ -2128,7 +2192,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     }
     
     // 線分系ツールはクリック方式
-    if (tool === 'line' || tool === 'boundary_line' || tool === 'contour_line' || tool === 'traverse_line' || tool === 'building_outline') {
+    if (tool === 'line' || tool === 'line-thin' || tool === 'line-thick' || tool === 'line-bold' || tool === 'boundary_line' || tool === 'bezier' || tool === 'traverse_line' || tool === 'building_outline') {
       if (!isLineDrawing) {
         // 線描画開始
         setIsLineDrawing(true);
@@ -2145,6 +2209,75 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     setCurrentPath([pos]);
   };
   
+  // テキスト作成・更新関数
+  const handleCreateText = () => {
+    console.log('handleCreateText 開始', { textInput, textPosition, editingTextElement });
+    
+    if (!textInput.trim()) {
+      console.log('テキストが空のため処理終了');
+      return;
+    }
+
+    try {
+      if (editingTextElement) {
+        // 既存テキストの更新
+        console.log('テキスト更新モード');
+        setElements(prev => prev.map(element => 
+          element.id === editingTextElement.id
+            ? {
+                ...element,
+                properties: {
+                  ...element.properties,
+                  text: textInput,
+                  fontSize: textFontSize,
+                  fontName: textFontName
+                },
+                updatedAt: new Date().toISOString(),
+                version: element.version + 1
+              }
+            : element
+        ));
+      } else if (textPosition) {
+        // 新規テキストの作成
+        console.log('新規テキスト作成モード', textPosition);
+        const newElement: CADElement = {
+          id: `text_${Date.now()}`,
+          type: 'text',
+          layerId: activeLayer,
+          points: [textPosition],
+          properties: {
+            stroke: currentStrokeColor,
+            text: textInput,
+            fontSize: textFontSize,
+            fontName: textFontName
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          version: 1
+        };
+
+        console.log('新規テキスト要素:', newElement);
+        setElements(prev => {
+          const newElements = [...prev, newElement];
+          console.log('要素追加後のリスト:', newElements);
+          return newElements;
+        });
+      } else {
+        console.log('エラー: textPositionがnull');
+        return;
+      }
+      
+      // リセット
+      setShowTextModal(false);
+      setTextInput('');
+      setTextPosition(null);
+      setEditingTextElement(null);
+      console.log('テキスト作成完了、状態リセット');
+    } catch (error) {
+      console.error('テキスト作成エラー:', error);
+    }
+  };
+
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -2233,7 +2366,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         layerId: activeLayer,
         points: linePoints,
         properties: {
-          stroke: layers.find(l => l.id === activeLayer)?.color || '#000000',
+          stroke: currentStrokeColor,
           strokeWidth: 1
         },
         sxfAttributes: {
@@ -2318,10 +2451,62 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       return;
     }
     
-    // ダブルクリック検出（線描画終了）
-    if (isLineDrawing && e.detail === 2) {
-      finishLineDrawing();
-      return;
+    // ダブルクリック検出
+    if (e.detail === 2) {
+      // 線描画終了
+      if (isLineDrawing) {
+        finishLineDrawing();
+        return;
+      }
+      
+      // テキスト編集（ダブルクリックでテキスト要素を編集）
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const worldPos = screenToWorld(x, y);
+        
+        // クリック位置にあるテキスト要素を検索
+        const clickedTextElement = elements.find(element => {
+          if (element.type === 'text' && element.points?.length >= 1) {
+            const textPos = element.points[0];
+            const distance = Math.sqrt(
+              Math.pow(worldPos.x - textPos.x, 2) + 
+              Math.pow(worldPos.y - textPos.y, 2)
+            );
+            return distance < 20; // 20px以内
+          }
+          return false;
+        });
+        
+        if (clickedTextElement) {
+          // テキスト編集モードに入る
+          setEditingTextElement(clickedTextElement);
+          setTextInput(clickedTextElement.properties.text || '');
+          setTextFontSize(clickedTextElement.properties.fontSize || 12);
+          setTextFontName(clickedTextElement.properties.fontName || 'MS Gothic');
+          setShowTextModal(true);
+          return;
+        }
+      }
+    }
+
+    // テキストツールの場合はテキスト入力モーダルを表示
+    if (tool === 'text') {
+      // テキストツール使用時は自動的にテキストレイヤーに切り替え
+      if (activeLayer !== 'S-TEXT') {
+        setActiveLayer('S-TEXT');
+      }
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const worldPos = screenToWorld(x, y);
+        console.log('テキストツール: 座標設定', worldPos);
+        setTextPosition(worldPos);
+        setShowTextModal(true);
+        return;
+      }
     }
     
     if (!isDrawing) return;
@@ -2330,7 +2515,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     let finalPath: CADPoint[];
     
     // ツールごとに適切なポイント数に調整
-    if (tool === 'line') {
+    if (tool === 'line' || tool === 'line-thin' || tool === 'line-thick' || tool === 'line-bold') {
       // 線分は開始点と終了点のみ
       finalPath = currentPath.length > 0 ? [currentPath[0], pos] : [pos];
     } else if (tool === 'circle') {
@@ -2354,9 +2539,17 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     }
     
     // 要素作成
+    // 線幅をツールに応じて設定
+    let strokeWidth = 1; // デフォルト
+    if (tool === 'line-thin') strokeWidth = 0.5;
+    else if (tool === 'line-thick') strokeWidth = 3;
+    else if (tool === 'line-bold') strokeWidth = 5;
+    else if (tool === 'boundary_line') strokeWidth = 2;
+    else if (tool === 'traverse_line') strokeWidth = 2;
+    
     const baseProperties = {
-      stroke: layers.find(l => l.id === activeLayer)?.color || '#000000',
-      strokeWidth: tool === 'boundary_line' ? 2 : tool === 'traverse_line' ? 2 : 1
+      stroke: currentStrokeColor,
+      strokeWidth: strokeWidth
     };
     
     // ツール固有のプロパティを追加
@@ -2666,11 +2859,8 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       dxfContent.push('70');
       dxfContent.push('0');
       dxfContent.push('62');
-      // 色をDXF色番号に変換（簡易版）
-      const colorNum = layer.color === '#FF0000' ? 1 : 
-                      layer.color === '#00FF00' ? 3 : 
-                      layer.color === '#0000FF' ? 5 : 7;
-      dxfContent.push(String(colorNum));
+      // デフォルト色番号
+      dxfContent.push('7');
     });
     
     dxfContent.push('0');
@@ -2692,7 +2882,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       switch (element.type) {
         case 'line':
         case 'boundary_line':
-        case 'contour_line':
+        case 'bezier':
           if (element.points?.length >= 2) {
             for (let i = 0; i < element.points?.length - 1; i++) {
               dxfContent.push('0');
@@ -2855,7 +3045,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       statistics: {
         surveyPoints: elements.filter(e => e.type === 'survey_point').length,
         boundaryLines: elements.filter(e => e.type === 'boundary_line').length,
-        contourLines: elements.filter(e => e.type === 'contour_line').length,
+        contourLines: elements.filter(e => e.type === 'bezier').length,
         totalLayers: layers.filter(l => l.visible).length,
         coordinateAccuracy: 'ミリメートル精度'
       },
@@ -2923,7 +3113,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     const sxfLayers = layers.map(layer => ({
       name: layer.id, // S-TOPO, S-STR等のOCF準拠レイヤー名
       description: layer.description,
-      color: layer.color,
       visible: layer.visible,
       elements: elements.filter(e => e.layerId === layer.id)
     }));
@@ -3240,12 +3429,41 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       switch (element.type) {
         case 'line':
         case 'boundary_line':
-        case 'contour_line':
           if (element.points?.length >= 2) {
             const pathData = element.points.map((point, index) => {
               return `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`;
             }).join(' ');
             svgElements.push(`<path d="${pathData}" stroke="${element.style?.strokeColor || '#FF0000'}" stroke-width="${element.style?.strokeWidth || 1}" fill="none"/>`);
+          }
+          break;
+
+        case 'bezier':
+          if (element.points?.length >= 2) {
+            let pathData = `M ${element.points[0].x} ${element.points[0].y}`;
+            
+            if (element.points.length >= 4) {
+              // 4点以上の場合：4点ずつ三次ベジェ曲線を描画
+              for (let i = 0; i < element.points.length - 3; i += 3) {
+                const cp1 = element.points[i + 1];
+                const cp2 = element.points[i + 2];
+                const p1 = element.points[i + 3];
+                pathData += ` C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${p1.x} ${p1.y}`;
+              }
+            } else if (element.points.length === 3) {
+              // 3点の場合は制御点を複製して三次ベジェ曲線に変換
+              pathData += ` C ${element.points[1].x} ${element.points[1].y} ${element.points[1].x} ${element.points[1].y} ${element.points[2].x} ${element.points[2].y}`;
+            } else if (element.points.length === 2) {
+              // 2点の場合は直線として三次ベジェ曲線で描画
+              const dx = (element.points[1].x - element.points[0].x) / 3;
+              const dy = (element.points[1].y - element.points[0].y) / 3;
+              const cp1x = element.points[0].x + dx;
+              const cp1y = element.points[0].y + dy;
+              const cp2x = element.points[0].x + 2 * dx;
+              const cp2y = element.points[0].y + 2 * dy;
+              pathData += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${element.points[1].x} ${element.points[1].y}`;
+            }
+            
+            svgElements.push(`<path d="${pathData}" stroke="${element.style?.strokeColor || '#804000'}" stroke-width="${element.style?.strokeWidth || 1}" fill="none"/>`);
           }
           break;
           
@@ -3459,52 +3677,20 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                   <IconCircle size={18} />
                 </ActionIcon>
               </Tooltip>
-              <Tooltip label="基準点">
+              <Tooltip label="点要素（基準点・測量点）">
                 <ActionIcon
                   variant={tool === 'point' ? 'filled' : 'light'}
                   onClick={() => handleToolChange('point')}
                 >
-                  <IconSquare size={18} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="測量点">
-                <ActionIcon
-                  variant={tool === 'survey_point' ? 'filled' : 'light'}
-                  onClick={() => handleToolChange('survey_point')}
-                >
-                  <IconTarget size={18} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="境界線 (クリック方式)">
-                <ActionIcon
-                  variant={tool === 'boundary_line' ? 'filled' : 'light'}
-                  onClick={() => handleToolChange('boundary_line')}
-                >
                   <IconMapPin size={18} />
                 </ActionIcon>
               </Tooltip>
-              <Tooltip label="等高線 (クリック方式)">
+              <Tooltip label="ベジェ曲線">
                 <ActionIcon
-                  variant={tool === 'contour_line' ? 'filled' : 'light'}
-                  onClick={() => handleToolChange('contour_line')}
+                  variant={tool === 'bezier' ? 'filled' : 'light'}
+                  onClick={() => handleToolChange('bezier')}
                 >
-                  <IconMountain size={18} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="トラバース線">
-                <ActionIcon
-                  variant={tool === 'traverse_line' ? 'filled' : 'light'}
-                  onClick={() => handleToolChange('traverse_line')}
-                >
-                  <IconCompass size={18} />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="制御点">
-                <ActionIcon
-                  variant={tool === 'control_point' ? 'filled' : 'light'}
-                  onClick={() => handleToolChange('control_point')}
-                >
-                  <IconLocation size={18} />
+                  <IconWaveSine size={18} />
                 </ActionIcon>
               </Tooltip>
               <Tooltip label="建物輪郭">
@@ -3709,6 +3895,19 @@ export const CADEditor: React.FC<CADEditorProps> = ({
           </Group>
           
           <Group>
+            {/* レイヤー選択 */}
+            <Select
+              data={layers.filter(l => l.visible).map(l => ({ value: l.id, label: l.name }))}
+              value={activeLayer}
+              onChange={(value) => setActiveLayer(value || 'S-TEXT')}
+              placeholder="レイヤー"
+              w={120}
+              size="xs"
+              styles={{
+                dropdown: { zIndex: 1001 }
+              }}
+            />
+            
             {/* 描画プロパティ設定 */}
             <Group gap="xs">
               <Select
@@ -3794,17 +3993,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
               size="xs"
               styles={{ dropdown: { zIndex: 1001 } }}
             />
-            
-            <Select
-              data={layers.filter(l => l.visible).map(l => ({ value: l.id, label: l.name }))}
-              value={activeLayer}
-              onChange={(value) => setActiveLayer(value || 'boundary')}
-              placeholder="作業レイヤー"
-              w={150}
-              styles={{
-                dropdown: { zIndex: 1001 }
-              }}
-            />
             <Button variant="light" size="sm" onClick={onClose}>
               閉じる
             </Button>
@@ -3812,41 +4000,9 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         </Group>
       </Paper>
       
+      
       {/* CAD編集メインコンテンツ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
-          {/* ページ管理 */}
-          <Paper shadow="sm" p="sm" mb="sm" withBorder>
-            <Group gap="xs">
-              <Text size="sm" fw={600}>用紙設定:</Text>
-              <Select
-                data={paperSizes.map(size => ({ value: size.id, label: size.name }))}
-                value={paperSettings.size.id}
-                onChange={(value) => {
-                  const newSize = paperSizes.find(s => s.id === value);
-                  if (newSize) {
-                    setPaperSettings(prev => ({ ...prev, size: newSize }));
-                  }
-                }}
-                placeholder="用紙サイズ"
-                w={100}
-                size="xs"
-              />
-              <Select
-                data={[
-                  { value: 'portrait', label: '縦' },
-                  { value: 'landscape', label: '横' }
-                ]}
-                value={paperSettings.orientation}
-                onChange={(value) => {
-                  if (value) {
-                    setPaperSettings(prev => ({ ...prev, orientation: value as 'portrait' | 'landscape' }));
-                  }
-                }}
-                w={60}
-                size="xs"
-              />
-            </Group>
-          </Paper>
           
           {/* CAD編集メインキャンバス */}
           <Box style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%' }}>
@@ -3879,16 +4035,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
         >
           <Group justify="space-between">
             <Group gap="lg">
-              <Group gap="sm">
-                <Text size="sm">座標系: 平面直角座標系第{paperSettings.coordinateSystem || 9}系</Text>
-                <Button
-                  size="xs"
-                  variant="light"
-                  onClick={toggleCoordinateDisplay}
-                >
-                  {coordinateDisplayMode === 'plane' ? '経緯度表示' : '平面座標表示'}
-                </Button>
-              </Group>
               <Text size="sm">縮尺: {paperSettings.scale}</Text>
               <Text size="sm">要素数: {elements.length}</Text>
               <Group gap="xs">
@@ -3906,10 +4052,10 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                 tool === 'pointer' ? '選択' :
                 tool === 'line' ? '線分' :
                 tool === 'circle' ? '円' :
-                tool === 'point' ? '基準点' :
+                tool === 'point' ? '点要素' :
                 tool === 'survey_point' ? '測量点' :
                 tool === 'boundary_line' ? '境界線' :
-                tool === 'contour_line' ? '等高線' :
+                tool === 'bezier' ? 'ベジェ曲線' :
                 tool === 'traverse_line' ? 'トラバース線' :
                 tool === 'control_point' ? '制御点' :
                 tool === 'building_outline' ? '建物輪郭' :
@@ -3978,28 +4124,13 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                         <Text size="xs" c="dimmed">{layer.description}</Text>
                       </Stack>
                     </Group>
-                    <Group>
-                      <ColorInput
-                        value={layer.color}
-                        onChange={(color) => {
-                          setLayers(prev => prev.map(l => 
-                            l.id === layer.id ? { ...l, color } : l
-                          ));
-                        }}
-                        size="sm"
-                        w={60}
-                        styles={{
-                          dropdown: { zIndex: 1001 }
-                        }}
-                      />
-                      <Badge
-                        variant={activeLayer === layer.id ? 'filled' : 'light'}
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => setActiveLayer(layer.id)}
-                      >
-                        {activeLayer === layer.id ? '作業中' : '選択'}
-                      </Badge>
-                    </Group>
+                    <Badge
+                      variant={activeLayer === layer.id ? 'filled' : 'light'}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setActiveLayer(layer.id)}
+                    >
+                      {activeLayer === layer.id ? '作業中' : '選択'}
+                    </Badge>
                   </Group>
                 </Paper>
               ))}
@@ -4109,7 +4240,7 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                     layerId: activeLayer,
                     points: [{ x: coordinateInput.x, y: coordinateInput.y }],
                     properties: {
-                      stroke: layers.find(l => l.id === activeLayer)?.color || '#FF0000',
+                      stroke: currentStrokeColor,
                       strokeWidth: 2,
                       pointNumber: `P${elements.filter(e => e.type === 'survey_point').length + 1}`
                     },
@@ -4216,38 +4347,6 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                 </Button>
               </Group>
               
-              <Select
-                label="平面直角座標系"
-                value={paperSettings.coordinateSystem?.toString()}
-                onChange={(value) => setPaperSettings(prev => ({ 
-                  ...prev, 
-                  coordinateSystem: parseInt(value || '9') 
-                }))}
-                data={[
-                  { value: '1', label: '1系 (長崎・鹿児島)' },
-                  { value: '2', label: '2系 (福岡・佐賀・熊本・大分・宮崎)' },
-                  { value: '3', label: '3系 (山口・島根・広島)' },
-                  { value: '4', label: '4系 (香川・愛媛・徳島・高知)' },
-                  { value: '5', label: '5系 (兵庫・鳥取・岡山)' },
-                  { value: '6', label: '6系 (京都・大阪・奈良・和歌山)' },
-                  { value: '7', label: '7系 (滋賀・三重)' },
-                  { value: '8', label: '8系 (愛知・岐阜)' },
-                  { value: '9', label: '9系 (東京・埼玉・千葉・茨城・栃木・群馬・福島)' },
-                  { value: '10', label: '10系 (青森・秋田・山形・岩手・宮城)' },
-                  { value: '11', label: '11系 (小笠原)' },
-                  { value: '12', label: '12系 (北海道西部)' },
-                  { value: '13', label: '13系 (北海道中央)' },
-                  { value: '14', label: '14系 (北海道東部)' },
-                  { value: '15', label: '15系 (沖縄)' },
-                  { value: '16', label: '16系 (沖縄西部)' },
-                  { value: '17', label: '17系 (沖縄西南部)' },
-                  { value: '18', label: '18系 (沖縄南部)' },
-                  { value: '19', label: '19系 (沖縄北部)' }
-                ]}
-                styles={{
-                  dropdown: { zIndex: 1001 }
-                }}
-              />
               
               <Group justify="space-between">
                 <Text size="sm">用紙枠を表示</Text>
@@ -4339,9 +4438,8 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             label="座標種別"
             defaultValue={editingCoordinate?.type || 'benchmark'}
             data={[
-              { value: 'benchmark', label: '基準点' },
-              { value: 'control_point', label: '制御点' },
-              { value: 'boundary_point', label: '境界点' }
+              { value: 'survey', label: '測量点' },
+              { value: 'benchmark', label: '水準点' }
             ]}
           />
           <Textarea
@@ -4605,6 +4703,75 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             </Group>
           </Stack>
         )}
+      </Modal>
+
+      {/* テキスト入力モーダル */}
+      <Modal
+        opened={showTextModal}
+        onClose={() => {
+          setShowTextModal(false);
+          setTextInput('');
+          setTextPosition(null);
+          setEditingTextElement(null);
+        }}
+        title={editingTextElement ? "テキスト編集" : "テキスト入力"}
+        size="md"
+        centered
+        zIndex={1000}
+        withinPortal={false}
+      >
+        <Stack spacing="md">
+          <TextInput
+            label="テキスト"
+            placeholder="テキストを入力してください"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            autoFocus
+          />
+          
+          <Group grow>
+            <NumberInput
+              label="フォントサイズ"
+              value={textFontSize}
+              onChange={(value) => setTextFontSize(value || 12)}
+              min={8}
+              max={72}
+              step={1}
+            />
+            <Select
+              label="フォント"
+              value={textFontName}
+              onChange={(value) => setTextFontName(value || 'MS Gothic')}
+              data={[
+                { value: 'MS Gothic', label: 'MS ゴシック' },
+                { value: 'MS Mincho', label: 'MS 明朝' },
+                { value: 'Arial', label: 'Arial' },
+                { value: 'Times New Roman', label: 'Times New Roman' },
+                { value: 'Courier New', label: 'Courier New' }
+              ]}
+            />
+          </Group>
+          
+          <Group justify="flex-end" mt="md">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowTextModal(false);
+                setTextInput('');
+                setTextPosition(null);
+                setEditingTextElement(null);
+              }}
+            >
+              キャンセル
+            </Button>
+            <Button 
+              onClick={handleCreateText}
+              disabled={!textInput.trim()}
+            >
+              {editingTextElement ? "更新" : "作成"}
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
       
       {/* マウス座標表示 */}

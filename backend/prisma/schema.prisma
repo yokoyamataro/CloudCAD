@@ -48,7 +48,6 @@ model Project {
   drawings        Drawing[]
   layers          Layer[]
   surveyPoints    SurveyPoint[]
-  boundaryLines   BoundaryLine[]
   landParcels     LandParcel[]
   tasks           Task[]
 }
@@ -106,10 +105,14 @@ model Drawing {
 // 描画要素（汎用）
 model DrawingElement {
   id            String   @id @default(cuid())
-  type          String   // LINE, POINT, TEXT, POLYGON, CIRCLE, ARC
+  type          String   // LINE, POINT, TEXT, POLYGON, CIRCLE, ARC, RECTANGLE, DIMENSION, BUILDING_OUTLINE, BEZIER
   geometry      String   // PostGIS Geometry（WKT形式またはJSON）
   properties    String?  // 属性データ（JSON）
   style         String?  // スタイル情報（JSON）
+  pointType     String?  // 点要素の種別：survey(測量点), benchmark(水準点)
+  pointNumber   String?  // 点番号
+  elevation     Float?   // 標高
+  accuracy      String?  // 精度等級
   layerId       String?
   drawingId     String?
   visible       Boolean  @default(true)
@@ -123,6 +126,7 @@ model DrawingElement {
   creator   User?    @relation(fields: [createdBy], references: [id])
   
   @@index([type])
+  @@index([pointType])
   @@index([layerId])
   @@index([drawingId])
 }
@@ -147,33 +151,9 @@ model SurveyPoint {
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   creator   User?   @relation(fields: [createdBy], references: [id])
   
-  // 測量点間の関係
-  fromLines BoundaryLine[] @relation("FromPoint")
-  toLines   BoundaryLine[] @relation("ToPoint")
-  
   @@unique([projectId, pointNumber])
 }
 
-// 境界線（筆界線等）
-model BoundaryLine {
-  id              String   @id @default(cuid())
-  lineNumber      String?  // 線番号
-  lineType        String   // 筆界, 所有権界, 行政界など
-  geometry        String   // WKT形式のLineString
-  length          Float?   // 距離
-  azimuth         Float?   // 方位角
-  measureMethod   String?  // 測量方法
-  certainty       String   @default("確定") // 確定, 推定, 不明
-  fromPointId     String?
-  toPointId       String?
-  projectId       String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  fromPoint   SurveyPoint? @relation("FromPoint", fields: [fromPointId], references: [id])
-  toPoint     SurveyPoint? @relation("ToPoint", fields: [toPointId], references: [id])
-}
 
 // 土地区画（筆等）
 model LandParcel {
