@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Container,
   Paper,
@@ -24,23 +24,16 @@ import {
 } from '@tabler/icons-react';
 import type { Project } from '../../types/project';
 import { CoordinateLotViewer } from '../viewer/CoordinateLotViewer';
+import { landParcelService, type LandParcel } from '../../services/landParcelService';
+import { surveyPointService, type SurveyPoint } from '../../services/surveyPointService';
 
 interface LotEditorProps {
   project: Project;
   onClose: () => void;
 }
 
-interface LotData {
-  id: string;
-  lotNumber: string;
-  landCategory: string;
-  area: number;
-  address: string;
-  owner: string;
-  registrationDate: string;
-  description?: string;
-  coordinates: string[]; // 構成座標点のIDリスト
-}
+// LotDataインターフェースをLandParcelに統一
+// interface LotData は LandParcel に統合
 
 interface CoordinatePoint {
   id: string;
@@ -55,88 +48,64 @@ export const LotEditor: React.FC<LotEditorProps> = ({
   project,
   onClose
 }) => {
-  // 座標点データ（サンプル）
-  const [availableCoordinates] = useState<CoordinatePoint[]>([
-    {
-      id: 'c1',
-      pointName: 'BP-1',
-      x: 45000.123,
-      y: -12000.456,
-      z: 12.345,
-      type: 'benchmark'
-    },
-    {
-      id: 'c2',
-      pointName: 'CP-1',
-      x: 45100.789,
-      y: -12050.234,
-      z: 11.987,
-      type: 'control_point'
-    },
-    {
-      id: 'c3',
-      pointName: 'BP-2',
-      x: 45200.345,
-      y: -12100.678,
-      z: 13.123,
-      type: 'boundary_point'
-    },
-    {
-      id: 'c4',
-      pointName: 'BP-3',
-      x: 45050.567,
-      y: -12075.890,
-      z: 12.678,
-      type: 'boundary_point'
-    }
-  ]);
+  // 座標点データ（API連携）
+  const [availableCoordinates, setAvailableCoordinates] = useState<CoordinatePoint[]>([]);
+  const [coordinatesLoading, setCoordinatesLoading] = useState(true);
 
-  // 地番データ管理
-  const [lotData, setLotData] = useState<LotData[]>([
-    {
-      id: '1',
-      lotNumber: '123番地1',
-      landCategory: '宅地',
-      area: 125.50,
-      address: '東京都渋谷区神宮前1-123-1',
-      owner: '田中太郎',
-      registrationDate: '2024-01-15',
-      description: '角地、南向き',
-      coordinates: ['c1', 'c2', 'c4']
-    },
-    {
-      id: '2',
-      lotNumber: '123番地2',
-      landCategory: '宅地',
-      area: 98.75,
-      address: '東京都渋谷区神宮前1-123-2',
-      owner: '佐藤花子',
-      registrationDate: '2024-01-16',
-      description: '旗竿地',
-      coordinates: ['c2', 'c3', 'c4']
-    },
-    {
-      id: '3',
-      lotNumber: '124番地',
-      landCategory: '雑種地',
-      area: 200.00,
-      address: '東京都渋谷区神宮前1-124',
-      owner: '山田商事株式会社',
-      registrationDate: '2024-01-17',
-      description: '駐車場用地',
-      coordinates: ['c1', 'c3']
-    }
-  ]);
+  // 地番データ管理（API連携）
+  const [lotData, setLotData] = useState<LandParcel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   const [showLotModal, setShowLotModal] = useState(false);
-  const [editingLot, setEditingLot] = useState<LotData | null>(null);
+  const [editingLot, setEditingLot] = useState<LandParcel | null>(null);
   const [showCoordinateSelectModal, setShowCoordinateSelectModal] = useState(false);
-  const [selectedLotForCoordinates, setSelectedLotForCoordinates] = useState<LotData | null>(null);
+  const [selectedLotForCoordinates, setSelectedLotForCoordinates] = useState<LandParcel | null>(null);
   const [hoveredLot, setHoveredLot] = useState<string | null>(null);
   const [modalPosition, setModalPosition] = useState({ x: 100, y: 100 });
   const [coordinateModalPosition, setCoordinateModalPosition] = useState({ x: 150, y: 150 });
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef({ offsetX: 0, offsetY: 0 });
+
+  // データの初期読み込み
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // 座標点と地番データを並行して読み込み
+        const [coordinatesData, parcelsData] = await Promise.all([
+          surveyPointService.getSurveyPointsByProject(project.id),
+          landParcelService.getLandParcelsByProject(project.id)
+        ]);
+
+        // 座標点データを変換
+        const convertedCoordinates = coordinatesData.map(sp => {
+          const coords = surveyPointService.wktToCoordinates(sp.coordinates);
+          return {
+            id: sp.id,
+            pointName: sp.pointNumber,
+            x: coords.x,
+            y: coords.y,
+            z: coords.z || 0,
+            type: sp.pointType as 'benchmark' | 'control_point' | 'boundary_point'
+          };
+        });
+
+        setAvailableCoordinates(convertedCoordinates);
+        setLotData(parcelsData);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'データの読み込みに失敗しました');
+        console.error('Error loading data:', err);
+      } finally {
+        setLoading(false);
+        setCoordinatesLoading(false);
+      }
+    };
+
+    loadData();
+  }, [project.id]);
 
   // ドラッグ関数
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -185,46 +154,85 @@ export const LotEditor: React.FC<LotEditorProps> = ({
     setShowLotModal(true);
   };
   
-  const handleEditLot = (lot: LotData) => {
+  const handleEditLot = (lot: LandParcel) => {
     setEditingLot(lot);
     setShowLotModal(true);
   };
   
-  const handleDeleteLot = (id: string) => {
-    setLotData(prev => prev.filter(lot => lot.id !== id));
+  const handleDeleteLot = async (id: string) => {
+    try {
+      await landParcelService.deleteLandParcel(id);
+      setLotData(prev => prev.filter(lot => lot.id !== id));
+    } catch (error) {
+      console.error('地番の削除に失敗しました:', error);
+      setError(error instanceof Error ? error.message : '地番の削除に失敗しました');
+    }
   };
 
-  const handleEditCoordinates = (lot: LotData) => {
+  const handleEditCoordinates = (lot: LandParcel) => {
     setSelectedLotForCoordinates(lot);
     setShowCoordinateSelectModal(true);
   };
 
-  const handleSaveCoordinates = (selectedCoordinateIds: string[]) => {
+  const handleSaveCoordinates = async (selectedCoordinateIds: string[]) => {
     if (selectedLotForCoordinates) {
-      setLotData(prev => prev.map(lot => 
-        lot.id === selectedLotForCoordinates.id 
-          ? { ...lot, coordinates: selectedCoordinateIds }
-          : lot
-      ));
+      try {
+        // 選択された座標点から WKT Polygon を生成
+        const geometry = landParcelService.coordinateIdsToPolygonWKT(
+          selectedCoordinateIds,
+          availableCoordinates
+        );
+        
+        // 座標点IDリストをJSON文字列に変換
+        const coordinatePoints = landParcelService.coordinatePointsToJson(selectedCoordinateIds);
+
+        // バックエンドAPIで更新
+        const updatedParcel = await landParcelService.updateLandParcel(
+          selectedLotForCoordinates.id,
+          {
+            geometry,
+            coordinatePoints
+          }
+        );
+
+        // ローカル状態を更新
+        setLotData(prev => prev.map(lot => 
+          lot.id === selectedLotForCoordinates.id ? updatedParcel : lot
+        ));
+
+        setShowCoordinateSelectModal(false);
+        setSelectedLotForCoordinates(null);
+      } catch (error) {
+        console.error('構成点の保存に失敗しました:', error);
+        setError(error instanceof Error ? error.message : '構成点の保存に失敗しました');
+      }
     }
-    setShowCoordinateSelectModal(false);
-    setSelectedLotForCoordinates(null);
   };
   
-  const handleSaveLot = (data: any) => {
-    if (editingLot) {
-      setLotData(prev => prev.map(lot => 
-        lot.id === editingLot.id ? { ...lot, ...data } : lot
-      ));
-    } else {
-      const newLot: LotData = {
-        id: Date.now().toString(),
-        ...data,
-        registrationDate: new Date().toISOString().split('T')[0]
-      };
-      setLotData(prev => [...prev, newLot]);
+  const handleSaveLot = async (data: any) => {
+    try {
+      if (editingLot) {
+        // 更新
+        const updatedParcel = await landParcelService.updateLandParcel(editingLot.id, data);
+        setLotData(prev => prev.map(lot => 
+          lot.id === editingLot.id ? updatedParcel : lot
+        ));
+      } else {
+        // 新規作成
+        const newParcelData = {
+          ...data,
+          projectId: project.id,
+          registrationDate: new Date().toISOString()
+        };
+        const newParcel = await landParcelService.createLandParcel(newParcelData);
+        setLotData(prev => [...prev, newParcel]);
+      }
+      setShowLotModal(false);
+      setEditingLot(null);
+    } catch (error) {
+      console.error('地番の保存に失敗しました:', error);
+      setError(error instanceof Error ? error.message : '地番の保存に失敗しました');
     }
-    setShowLotModal(false);
   };
   
   const getLandCategoryColor = (category: string) => {
@@ -300,14 +308,14 @@ export const LotEditor: React.FC<LotEditorProps> = ({
                   }}
                 >
                   <Table.Td>
-                    <Text fw={600}>{lot.lotNumber}</Text>
+                    <Text fw={600}>{lot.parcelNumber}</Text>
                     {lot.description && (
                       <Text size="xs" c="dimmed">{lot.description}</Text>
                     )}
                   </Table.Td>
                   <Table.Td>
-                    <Badge color={getLandCategoryColor(lot.landCategory)} variant="light">
-                      {lot.landCategory}
+                    <Badge color={getLandCategoryColor(lot.landUse)} variant="light">
+                      {lot.landUse}
                     </Badge>
                   </Table.Td>
                   <Table.Td>
@@ -317,7 +325,7 @@ export const LotEditor: React.FC<LotEditorProps> = ({
                   </Table.Td>
                   <Table.Td>
                     <Badge variant="outline" size="sm">
-                      {lot.coordinates.length}点
+                      {landParcelService.coordinatePointsFromJson(lot.coordinatePoints).length}点
                     </Badge>
                   </Table.Td>
                   <Table.Td>
@@ -444,7 +452,7 @@ export const LotEditor: React.FC<LotEditorProps> = ({
               alignItems: 'center'
             }}
           >
-            <Text fw={600}>構成点編集 - {selectedLotForCoordinates.lotNumber}</Text>
+            <Text fw={600}>構成点編集 - {selectedLotForCoordinates.parcelNumber}</Text>
             <Button
               variant="subtle"
               size="xs"
@@ -456,7 +464,7 @@ export const LotEditor: React.FC<LotEditorProps> = ({
           <div style={{ padding: '16px' }}>
             <CoordinateSelectForm
               availableCoordinates={availableCoordinates}
-              selectedCoordinateIds={selectedLotForCoordinates.coordinates}
+              selectedCoordinateIds={landParcelService.coordinatePointsFromJson(selectedLotForCoordinates.coordinatePoints)}
               onSave={handleSaveCoordinates}
               onCancel={() => setShowCoordinateSelectModal(false)}
             />
@@ -480,10 +488,10 @@ export const LotEditor: React.FC<LotEditorProps> = ({
         }))}
         lots={lotData.map(lot => ({
           id: lot.id,
-          lotNumber: lot.lotNumber,
-          landCategory: lot.landCategory,
+          lotNumber: lot.parcelNumber,
+          landCategory: lot.landUse || '',
           area: lot.area,
-          coordinates: lot.coordinates,
+          coordinates: landParcelService.coordinatePointsFromJson(lot.coordinatePoints),
           visible: true
         }))}
         hoveredLot={hoveredLot}
@@ -501,24 +509,24 @@ export const LotEditor: React.FC<LotEditorProps> = ({
 
 // 地番入力フォームコンポーネント
 const LotForm: React.FC<{
-  lot?: LotData | null;
+  lot?: LandParcel | null;
   onSave: (data: any) => void;
   onCancel: () => void;
 }> = ({ lot, onSave, onCancel }) => {
   const [formData, setFormData] = useState({
-    lotNumber: lot?.lotNumber || '',
-    landCategory: lot?.landCategory || '宅地',
+    parcelNumber: lot?.parcelNumber || '',
+    landUse: lot?.landUse || '宅地',
     area: lot?.area?.toString() || '',
     address: lot?.address || '',
     owner: lot?.owner || '',
-    description: lot?.description || ''
+    remarks: lot?.remarks || ''
   });
   
   const handleSubmit = () => {
     const data = {
       ...formData,
       area: parseFloat(formData.area),
-      coordinates: lot?.coordinates || []
+      projectId: lot?.projectId // 必要に応じて追加
     };
     onSave(data);
   };
@@ -528,15 +536,15 @@ const LotForm: React.FC<{
       <Group grow>
         <TextInput
           label="地番"
-          value={formData.lotNumber}
-          onChange={(e) => setFormData(prev => ({ ...prev, lotNumber: e.target.value }))}
+          value={formData.parcelNumber}
+          onChange={(e) => setFormData(prev => ({ ...prev, parcelNumber: e.target.value }))}
           required
           placeholder="例: 123番地1"
         />
         <Select
           label="地目"
-          value={formData.landCategory}
-          onChange={(value) => setFormData(prev => ({ ...prev, landCategory: value || '宅地' }))}
+          value={formData.landUse}
+          onChange={(value) => setFormData(prev => ({ ...prev, landUse: value || '宅地' }))}
           data={[
             { value: '宅地', label: '宅地' },
             { value: '田', label: '田' },
@@ -579,8 +587,8 @@ const LotForm: React.FC<{
       
       <TextInput
         label="備考"
-        value={formData.description}
-        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+        value={formData.remarks}
+        onChange={(e) => setFormData(prev => ({ ...prev, remarks: e.target.value }))}
         placeholder="例: 角地、南向き"
       />
       
@@ -590,7 +598,7 @@ const LotForm: React.FC<{
         </Button>
         <Button 
           onClick={handleSubmit}
-          disabled={!formData.lotNumber || !formData.area || !formData.address || !formData.owner}
+          disabled={!formData.parcelNumber || !formData.area || !formData.address || !formData.owner}
         >
           {lot ? '更新' : '追加'}
         </Button>

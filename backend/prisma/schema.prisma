@@ -164,6 +164,7 @@ model LandParcel {
   landUse         String?  // 地目
   owner           String?  // 所有者
   geometry        String?  // WKT形式のPolygon
+  coordinatePoints String? // 構成座標点のIDリスト（JSON配列）
   registrationDate DateTime?
   remarks         String?
   projectId       String

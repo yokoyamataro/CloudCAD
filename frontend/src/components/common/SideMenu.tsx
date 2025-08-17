@@ -1,18 +1,14 @@
 import React, { useState } from 'react';
 import {
-  Paper,
   Stack,
   Button,
   Divider,
   Text,
   Group,
-  ActionIcon,
-  Badge,
-  Portal
+  Badge
 } from '@mantine/core';
 import {
   IconMenu2,
-  IconX,
   IconUsers,
   IconChecklist,
   IconMapPins,
@@ -34,8 +30,8 @@ interface SideMenuProps {
 }
 
 export const SideMenu: React.FC<SideMenuProps> = ({
-  opened,
-  onClose,
+  opened, // 常時表示なので実際は未使用
+  onClose, // 常時表示なので実際は未使用
   onMenuItemClick,
   onCoordinateEdit,
   onLotEdit,
@@ -88,146 +84,114 @@ export const SideMenu: React.FC<SideMenuProps> = ({
   ];
 
   return (
-    <Portal>
-      {/* オーバーレイ */}
-      {opened && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.3)',
-            zIndex: 9997,
-          }}
-          onClick={onClose}
-        />
-      )}
+    // アイコンのみの細いサイドメニュー
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: 60,
+        height: '100vh',
+        backgroundColor: '#f8f9fa',
+        borderRight: '1px solid #e9ecef',
+        zIndex: 1000,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        paddingTop: '15px'
+      }}
+    >
+      {/* ヘッダーアイコン */}
+      <div style={{
+        padding: '5px',
+        marginBottom: '15px'
+      }}>
+        <IconMenu2 size={20} color="#495057" />
+      </div>
       
-      {/* カスタムサイドメニュー */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: opened ? 0 : -400, // 左側からスライド
-          width: 400,
-          height: '100vh',
-          backgroundColor: 'white',
-          zIndex: 9998,
-          transition: 'left 0.3s ease',
-          boxShadow: '2px 0 8px rgba(0, 0, 0, 0.1)',
-          overflow: 'auto'
-        }}
-      >
-        {/* ヘッダー */}
-        <div style={{
-          padding: '20px',
-          borderBottom: '1px solid #e9ecef',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <Group gap="sm">
-            <IconMenu2 size={20} />
-            <Text fw={600}>プロジェクトメニュー</Text>
-          </Group>
-          <ActionIcon variant="subtle" onClick={onClose}>
-            <IconX size={16} />
-          </ActionIcon>
-        </div>
-        
-        {/* メニューコンテンツ */}
-        <div style={{ padding: '20px' }}>
-      <Stack gap="md" pt="md">
-        <Text size="sm" c="dimmed">
-          プロジェクトの各機能にアクセスできます
-        </Text>
-
-        <Divider />
-
+      {/* メニューアイコン */}
+      <Stack gap="xs" style={{ width: '100%', alignItems: 'center' }}>
         {menuItems.map((item) => (
-          <Button
+          <div
             key={item.id}
-            variant="light"
-            color={item.color}
-            size="md"
-            leftSection={item.icon}
-            rightSection={
-              item.count > 0 ? (
-                <Badge size="sm" color={item.color} variant="filled">
-                  {item.count}
-                </Badge>
-              ) : null
-            }
-            onClick={() => {
-              if (item.id === 'coordinates' && onCoordinateEdit) {
-                onCoordinateEdit();
-              } else if (item.id === 'lots' && onLotEdit) {
-                onLotEdit();
-              } else {
-                onMenuItemClick(item.id);
-              }
-              onClose();
-            }}
             style={{
-              justifyContent: 'flex-start',
-              height: 'auto',
-              padding: '12px 16px'
+              position: 'relative',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
             }}
           >
-            <div style={{ textAlign: 'left', flex: 1 }}>
-              <Text fw={600} size="sm">
-                {item.label}
-              </Text>
-              <Text size="xs" c="dimmed" mt={2}>
-                {item.description}
-              </Text>
-            </div>
-          </Button>
+            <Button
+              variant="subtle"
+              color={item.color}
+              size="md"
+              onClick={() => {
+                if (item.id === 'coordinates' && onCoordinateEdit) {
+                  onCoordinateEdit();
+                } else if (item.id === 'lots' && onLotEdit) {
+                  onLotEdit();
+                } else {
+                  onMenuItemClick(item.id);
+                }
+              }}
+              style={{
+                width: '36px',
+                height: '36px',
+                padding: '0',
+                borderRadius: '6px'
+              }}
+              title={item.label} // ホバー時にラベルを表示
+            >
+              {item.icon}
+            </Button>
+            {/* カウントバッジ */}
+            {item.count > 0 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  backgroundColor: item.color === 'blue' ? '#228be6' : 
+                                 item.color === 'green' ? '#40c057' :
+                                 item.color === 'orange' ? '#fd7e14' :
+                                 item.color === 'teal' ? '#20c997' : '#868e96',
+                  color: 'white',
+                  borderRadius: '50%',
+                  width: '20px',
+                  height: '20px',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minWidth: '20px'
+                }}
+              >
+                {item.count > 99 ? '99+' : item.count}
+              </div>
+            )}
+          </div>
         ))}
 
-        <Divider />
+        <Divider style={{ width: '60%', margin: '10px 0' }} />
 
         <Button
           variant="subtle"
           color="gray"
-          size="sm"
-          leftSection={<IconCalendar size={16} />}
-          onClick={onClose}
+          size="md"
+          onClick={() => {}}
+          style={{
+            width: '36px',
+            height: '36px',
+            padding: '0',
+            borderRadius: '6px'
+          }}
+          title="スケジュール表示"
         >
-          スケジュール表示
+          <IconCalendar size={16} />
         </Button>
       </Stack>
-        </div>
-      </div>
-    </Portal>
+    </div>
   );
 };
 
-interface MenuToggleButtonProps {
-  onClick: () => void;
-}
-
-export const MenuToggleButton: React.FC<MenuToggleButtonProps> = ({ onClick }) => {
-  return (
-    <Portal>
-      <ActionIcon
-        variant="filled"
-        size="xl"
-        color="blue"
-        onClick={onClick}
-        style={{
-          position: 'fixed',
-          top: 20,
-          left: 20,
-          zIndex: 9999, // より高いz-indexで確実に表示
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-          border: '2px solid white' // デバッグ用の境界線
-        }}
-      >
-        <IconMenu2 size={24} />
-      </ActionIcon>
-    </Portal>
-  );
-};

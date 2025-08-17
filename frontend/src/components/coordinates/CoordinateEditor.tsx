@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container,
   Paper,
@@ -35,14 +35,14 @@ import {
 import type { Project } from '../../types/project';
 import { CoordinateLotViewer } from '../viewer/CoordinateLotViewer';
 import { 
-  generateSimpleCoordinateData, 
   generateLotData, 
   generateLandownerData,
   formatLotNumber,
-  type CoordinatePoint as MockCoordinatePoint,
   type LotData as MockLotData,
   type LandownerData as MockLandownerData
 } from '../../utils/mockDataGenerator';
+import { surveyPointService, type SurveyPoint } from '../../services/surveyPointService';
+import { EditableCell } from '../common/EditableCell';
 
 interface CoordinateEditorProps {
   project: Project;
@@ -59,9 +59,152 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   const [activeTab, setActiveTab] = useState<string | null>(initialTab);
 
   // 座標データ管理（共通のデータジェネレーターを使用）
-  const [coordinateData, setCoordinateData] = useState(() => generateSimpleCoordinateData());
+  const [coordinateData, setCoordinateData] = useState<SurveyPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [lotData, setLotData] = useState(() => generateLotData());
   const [landownerData, setLandownerData] = useState(() => generateLandownerData());
+
+  // 座標データの初期読み込み
+  useEffect(() => {
+    const loadCoordinateData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await surveyPointService.getSurveyPointsByProject(project.id);
+        
+        // SurveyPoint形式をCoordinatePoint形式に変換
+        const convertedData = data.map(sp => {
+          const coords = surveyPointService.wktToCoordinates(sp.coordinates);
+          return {
+            id: sp.id,
+            pointName: sp.pointNumber,
+            type: sp.pointType as 'benchmark' | 'control_point' | 'boundary_point',
+            x: coords.x,
+            y: coords.y,
+            z: coords.z || 0,
+            description: sp.remarks || '',
+            surveyDate: sp.measureDate || new Date().toISOString().split('T')[0],
+            assignee: sp.surveyorName || '未割当',
+            status: '測量中' // デフォルト値
+          };
+        });
+        
+        setCoordinateData(convertedData as any);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '座標データの読み込みに失敗しました');
+        console.error('Error loading coordinate data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCoordinateData();
+  }, [project.id]);
+
+  // 新規座標点追加関数
+  const handleAddCoordinate = async () => {
+    try {
+      const newPoint = {
+        pointNumber: `新規点-${Date.now()}`,
+        pointType: 'boundary_point',
+        coordinates: surveyPointService.coordinatesToWKT(0, 0, 0),
+        elevation: 0,
+        measureDate: new Date().toISOString().split('T')[0],
+        surveyorName: '未割当',
+        remarks: '新規追加座標点',
+        projectId: project.id
+      };
+
+      const createdPoint = await surveyPointService.createSurveyPoint(newPoint);
+      
+      // ローカル状態に追加
+      const coords = surveyPointService.wktToCoordinates(createdPoint.coordinates);
+      const newCoordinate = {
+        id: createdPoint.id,
+        pointName: createdPoint.pointNumber,
+        type: createdPoint.pointType as 'benchmark' | 'control_point' | 'boundary_point',
+        x: coords.x,
+        y: coords.y,
+        z: coords.z || 0,
+        description: createdPoint.remarks || '',
+        surveyDate: createdPoint.measureDate || new Date().toISOString().split('T')[0],
+        assignee: createdPoint.surveyorName || '未割当',
+        status: '未測量',
+        coordinates: createdPoint.coordinates
+      };
+
+      setCoordinateData(prev => [...prev, newCoordinate as any]);
+    } catch (error) {
+      console.error('座標点の追加に失敗しました:', error);
+      setError(error instanceof Error ? error.message : '座標点の追加に失敗しました');
+    }
+  };
+
+  // 座標データの更新関数
+  const updateCoordinateField = async (coordId: string, field: string, value: string | number) => {
+    try {
+      // 座標の場合は特別処理
+      if (['x', 'y', 'z'].includes(field)) {
+        const coord = coordinateData.find(c => c.id === coordId);
+        if (!coord) return;
+
+        const coords = surveyPointService.wktToCoordinates(coord.coordinates);
+        const newCoords = {
+          x: field === 'x' ? Number(value) : coords.x,
+          y: field === 'y' ? Number(value) : coords.y,
+          z: field === 'z' ? Number(value) : coords.z
+        };
+
+        const newWKT = surveyPointService.coordinatesToWKT(newCoords.x, newCoords.y, newCoords.z);
+        await surveyPointService.updateSurveyPoint(coordId, { coordinates: newWKT });
+
+        // ローカル状態更新
+        setCoordinateData(prev => prev.map(c => 
+          c.id === coordId 
+            ? { ...c, coordinates: newWKT } as any
+            : c
+        ));
+      } else {
+        // その他のフィールド
+        const updateData: any = {};
+        switch (field) {
+          case 'pointName':
+            updateData.pointNumber = String(value);
+            break;
+          case 'type':
+            updateData.pointType = String(value);
+            break;
+          case 'description':
+            updateData.remarks = String(value);
+            break;
+          case 'assignee':
+            updateData.surveyorName = String(value);
+            break;
+          case 'surveyDate':
+            updateData.measureDate = String(value);
+            break;
+          case 'status':
+            // Status is a frontend-only field, just update local state
+            break;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await surveyPointService.updateSurveyPoint(coordId, updateData);
+        }
+
+        // ローカル状態更新（全フィールド共通）
+        setCoordinateData(prev => prev.map(c => 
+          c.id === coordId 
+            ? { ...c, [field]: value } as any
+            : c
+        ));
+      }
+    } catch (error) {
+      console.error('座標データの更新に失敗しました:', error);
+      setError(error instanceof Error ? error.message : '座標データの更新に失敗しました');
+    }
+  };
   
   // 座標選択状態管理
   const [selectedCoordinates, setSelectedCoordinates] = useState<Set<string>>(new Set());
@@ -170,9 +313,22 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     }
   };
 
-  const handleBulkDelete = () => {
-    setCoordinateData(prev => prev.filter(coord => !selectedCoordinates.has(coord.id)));
-    setSelectedCoordinates(new Set());
+  const handleBulkDelete = async () => {
+    try {
+      const idsToDelete = Array.from(selectedCoordinates);
+      
+      // APIで削除
+      await Promise.all(idsToDelete.map(id => 
+        surveyPointService.deleteSurveyPoint(id)
+      ));
+      
+      // ローカル状態から削除
+      setCoordinateData(prev => prev.filter(coord => !selectedCoordinates.has(coord.id)));
+      setSelectedCoordinates(new Set());
+    } catch (error) {
+      console.error('座標点の削除に失敗しました:', error);
+      setError(error instanceof Error ? error.message : '座標点の削除に失敗しました');
+    }
   };
 
   // SIM読込・書込関数
@@ -436,42 +592,95 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                           </Table.Td>
                           <Table.Td>
                             <div>
-                              <Text fw={600}>{coord.pointName}</Text>
-                              <Text size="xs" c="dimmed">{coord.description}</Text>
+                              <EditableCell
+                                value={coord.pointName}
+                                type="text"
+                                onSave={(value) => updateCoordinateField(coord.id, 'pointName', value)}
+                                placeholder="点名"
+                              />
+                              <EditableCell
+                                value={coord.description}
+                                type="text"
+                                onSave={(value) => updateCoordinateField(coord.id, 'description', value)}
+                                placeholder="備考"
+                              />
                             </div>
                           </Table.Td>
                           <Table.Td>
-                            <Badge color={getTypeBadgeColor(coord.type)} variant="light">
-                              {getTypeLabel(coord.type)}
-                            </Badge>
+                            <EditableCell
+                              value={coord.type}
+                              type="select"
+                              options={[
+                                { value: 'benchmark', label: '基準点' },
+                                { value: 'control_point', label: '制御点' },
+                                { value: 'boundary_point', label: '境界点' }
+                              ]}
+                              onSave={(value) => updateCoordinateField(coord.id, 'type', value)}
+                            />
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                              {coord.x.toFixed(3)}
-                            </Text>
+                            <EditableCell
+                              value={coord.x}
+                              type="number"
+                              onSave={(value) => updateCoordinateField(coord.id, 'x', value)}
+                              precision={3}
+                              placeholder="X座標"
+                            />
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                              {coord.y.toFixed(3)}
-                            </Text>
+                            <EditableCell
+                              value={coord.y}
+                              type="number"
+                              onSave={(value) => updateCoordinateField(coord.id, 'y', value)}
+                              precision={3}
+                              placeholder="Y座標"
+                            />
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                              {coord.z.toFixed(3)}
-                            </Text>
+                            <EditableCell
+                              value={coord.z}
+                              type="number"
+                              onSave={(value) => updateCoordinateField(coord.id, 'z', value)}
+                              precision={3}
+                              placeholder="Z座標"
+                            />
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm" c={coord.assignee === '未割当' ? 'dimmed' : undefined}>
-                              {coord.assignee}
-                            </Text>
+                            <EditableCell
+                              value={coord.assignee}
+                              type="select"
+                              options={[
+                                { value: '未割当', label: '未割当' },
+                                { value: '田中技師', label: '田中技師' },
+                                { value: '佐藤技師', label: '佐藤技師' },
+                                { value: '鈴木技師', label: '鈴木技師' },
+                                { value: '高橋技師', label: '高橋技師' },
+                                { value: '外部委託', label: '外部委託' }
+                              ]}
+                              onSave={(value) => updateCoordinateField(coord.id, 'assignee', value)}
+                            />
                           </Table.Td>
                           <Table.Td>
-                            <Badge color={getStatusBadgeColor(coord.status)} variant="light" size="sm">
-                              {coord.status}
-                            </Badge>
+                            <EditableCell
+                              value={coord.status}
+                              type="select"
+                              options={[
+                                { value: '未測量', label: '未測量' },
+                                { value: '測量中', label: '測量中' },
+                                { value: '測量済み', label: '測量済み' },
+                                { value: '検査済み', label: '検査済み' },
+                                { value: '要再測量', label: '要再測量' }
+                              ]}
+                              onSave={(value) => updateCoordinateField(coord.id, 'status', value)}
+                            />
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm">{coord.surveyDate}</Text>
+                            <EditableCell
+                              value={coord.surveyDate}
+                              type="text"
+                              onSave={(value) => updateCoordinateField(coord.id, 'surveyDate', value)}
+                              placeholder="YYYY-MM-DD"
+                            />
                           </Table.Td>
                         </Table.Tr>
                       ))}
@@ -523,7 +732,11 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                       >
                         SIM書込
                       </Button>
-                      <Button leftSection={<IconPlus size={16} />} size="sm">
+                      <Button 
+                        leftSection={<IconPlus size={16} />} 
+                        size="sm"
+                        onClick={handleAddCoordinate}
+                      >
                         座標点追加
                       </Button>
                     </Group>

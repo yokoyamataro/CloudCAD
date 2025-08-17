@@ -55,7 +55,7 @@ import {
   type LotData as MockLotData
 } from '../../utils/mockDataGenerator';
 import { ProjectEditForm } from './ProjectEditForm';
-import { SideMenu, MenuToggleButton } from '../common/SideMenu';
+import { SideMenu } from '../common/SideMenu';
 import { CoordinateEditor } from '../coordinates/CoordinateEditor';
 
 interface ProjectDetailProps {
@@ -84,8 +84,6 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [editingMember, setEditingMember] = useState<any>(null);
   const [members, setMembers] = useState(project.members);
   
-  // サイドメニュー状態
-  const [sideMenuOpened, setSideMenuOpened] = useState(false);
   const [activeView, setActiveView] = useState<'overview' | 'members' | 'tasks' | 'coordinates' | 'lots' | 'settings'>('overview');
   
   // 座標・地番データ（CoordinateEditorと同じデータを使用）
@@ -392,7 +390,6 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
 
   const handleMenuItemClick = (item: 'members' | 'tasks' | 'coordinates' | 'lots' | 'settings') => {
     setActiveView(item);
-    setSideMenuOpened(false);
   };
 
   // 座標・地番編集モードを開く
@@ -458,16 +455,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       )}
 
       <div style={{ display: 'flex', position: 'relative' }}>
-        <div style={{ flex: 1, marginRight: '33.333vw' }}>
+        <div style={{ flex: 1, marginLeft: '60px', marginRight: '33.333vw' }}>
           <Container 
             size="xl" 
-            py={20} 
-            style={{ 
-              paddingLeft: '80px', // デスクトップ: メニューボタン分のスペース確保
-              '@media (max-width: 768px)': {
-                paddingLeft: '80px' // モバイル: メニューボタン分のスペース確保
-              }
-            }}
+            py={20}
           >
           {/* ヘッダー */}
       <Paper shadow="sm" p={20} mb={30} withBorder>
@@ -1009,13 +1000,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         </Container>
       </div>
       
-      {/* メニューボタン - 最上位レベルで配置 */}
-      <MenuToggleButton onClick={() => setSideMenuOpened(true)} />
-      
-      {/* サイドメニュー - 最上位レベルで配置 */}
+      {/* 固定サイドメニュー */}
       <SideMenu
-        opened={sideMenuOpened}
-        onClose={() => setSideMenuOpened(false)}
+        opened={true}
+        onClose={() => {}}
         onMenuItemClick={handleMenuItemClick}
         onCoordinateEdit={handleCoordinateMode}
         onLotEdit={handleLotMode}

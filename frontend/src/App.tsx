@@ -115,11 +115,11 @@ function App() {
         );
       
       case 'lot':
+        console.log('Rendering LotEditor with project:', appState.selectedProject?.name);
         return appState.selectedProject ? (
-          <CoordinateEditor
+          <LotEditor
             project={appState.selectedProject}
             onClose={handleBackToDetail}
-            initialTab="lots"
           />
         ) : (
           <ProjectManager onProjectSelect={handleProjectSelect} />

@@ -13,6 +13,8 @@ import drawingRoutes from './routes/drawings';
 import sxfRoutes from './routes/sxf';
 import memberRoutes from './routes/members';
 import elementRoutes from './routes/elements';
+import surveyPointRoutes from './routes/surveyPoints';
+import landParcelRoutes from './routes/landParcels';
 // import taskRoutes from './routes/tasks';
 
 // ミドルウェアのインポート
@@ -129,6 +131,8 @@ app.use('/api/projects', authenticateToken, projectRoutes);
 app.use('/api/drawings', authenticateToken, drawingRoutes);
 app.use('/api/sxf', authenticateToken, sxfRoutes);
 app.use('/api/elements', authenticateToken, elementRoutes);
+app.use('/api/survey-points', authenticateToken, surveyPointRoutes);
+app.use('/api/land-parcels', authenticateToken, landParcelRoutes);
 // テスト用: 認証なしでアクセス可能なエンドポイント
 app.use('/api/elements-test', elementRoutes);
 app.use('/api', authenticateToken, memberRoutes);
