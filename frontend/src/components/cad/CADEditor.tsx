@@ -55,7 +55,8 @@ import {
   IconFileImport,
   IconFileExport,
   IconDatabase,
-  IconWaveSine
+  IconWaveSine,
+  IconArrowLeft
 } from '@tabler/icons-react';
 // import { P21Parser } from '../../modules/sxf/P21Parser';
 // import { P21Exporter } from '../../modules/sxf/P21Exporter';
@@ -336,6 +337,18 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   const [editingLayer, setEditingLayer] = useState<string | null>(null);
   const [editingLayerName, setEditingLayerName] = useState('');
   
+  // 新規レベル作成関連
+  const [showNewLevelModal, setShowNewLevelModal] = useState(false);
+  const [newLevel, setNewLevel] = useState({
+    name: '',
+    originX: 0,
+    originY: 0,
+    rotation: 0,
+    scaleX: 1.0,
+    scaleY: 1.0,
+    description: ''
+  });
+  
   // デフォルト描画色
   const [currentStrokeColor, setCurrentStrokeColor] = useState('#000000');
 
@@ -401,6 +414,57 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       const remainingLayers = layers.filter(layer => layer.id !== layerId);
       setActiveLayer(remainingLayers.length > 0 ? remainingLayers[0].id : 'MAIN');
     }
+  };
+
+  // レベル管理ハンドラー
+  const handleCreateNewLevel = () => {
+    if (newLevel.name.trim()) {
+      const newLevelId = `LEVEL-${Date.now()}`;
+      const maxLevelNumber = Math.max(...coordinateSystem.levels.map(l => l.levelNumber), 0) + 1;
+      
+      const levelToAdd: CADLevel = {
+        id: newLevelId,
+        name: newLevel.name.trim(),
+        levelNumber: maxLevelNumber,
+        originX: newLevel.originX,
+        originY: newLevel.originY,
+        rotation: newLevel.rotation,
+        scaleX: newLevel.scaleX,
+        scaleY: newLevel.scaleY,
+        description: newLevel.description || `ユーザー作成レベル: ${newLevel.name.trim()}`,
+        isActive: false
+      };
+
+      setCoordinateSystem(prev => ({
+        ...prev,
+        levels: [...prev.levels, levelToAdd],
+        activeLevel: newLevelId
+      }));
+
+      // フォームをリセット
+      setNewLevel({
+        name: '',
+        originX: 0,
+        originY: 0,
+        rotation: 0,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        description: ''
+      });
+      setShowNewLevelModal(false);
+    }
+  };
+
+  const handleResetNewLevel = () => {
+    setNewLevel({
+      name: '',
+      originX: 0,
+      originY: 0,
+      rotation: 0,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      description: ''
+    });
   };
   
   // 座標入力
@@ -3569,12 +3633,34 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     URL.revokeObjectURL(url);
   }, [elements, layers, paperSettings]);
 
+  // ブラウザタブのタイトルを設定
+  useEffect(() => {
+    document.title = 'CloudCAD - CAD図面作成システム';
+    return () => {
+      document.title = 'CloudCAD';
+    };
+  }, []);
+
   return (
     <Box h="100vh" w="100vw" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* ツールバー */}
       <Paper shadow="sm" p="sm" withBorder style={{ width: '100%' }}>
         <Group justify="space-between">
           <Group>
+            {/* プロジェクト詳細に戻る */}
+            <Tooltip label="プロジェクト詳細に戻る">
+              <ActionIcon 
+                variant="light" 
+                color="gray"
+                onClick={onClose}
+                size="lg"
+              >
+                <IconArrowLeft size={18} />
+              </ActionIcon>
+            </Tooltip>
+            
+            <Divider orientation="vertical" />
+            
             {/* ファイル操作 */}
             <Group gap="xs">
               <Menu shadow="md" width={200}>
@@ -4040,7 +4126,9 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             <Select
               value={coordinateSystem.activeLevel}
               onChange={(value) => {
-                if (value) {
+                if (value === '___new_level___') {
+                  setShowNewLevelModal(true);
+                } else if (value) {
                   setCoordinateSystem(prev => ({
                     ...prev,
                     activeLevel: value
@@ -4057,16 +4145,14 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                 ).map(level => ({ 
                   value: level.id, 
                   label: `レベル${level.levelNumber}: ${level.name} (1/${Math.round(1/level.scaleX)})` 
-                }))
+                })),
+                { value: '___new_level___', label: '+ 新規レベル作成' }
               ]}
               placeholder="座標レベル"
               w={180}
               size="xs"
               styles={{ dropdown: { zIndex: 1001 } }}
             />
-            <Button variant="light" size="sm" onClick={onClose}>
-              閉じる
-            </Button>
           </Group>
         </Group>
       </Paper>
@@ -4941,6 +5027,111 @@ export const CADEditor: React.FC<CADEditorProps> = ({
             <Button 
               onClick={handleCreateNewLayer}
               disabled={!newLayerName.trim()}
+            >
+              作成
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* 新規レベル作成モーダル */}
+      <Modal
+        opened={showNewLevelModal}
+        onClose={() => {
+          setShowNewLevelModal(false);
+          handleResetNewLevel();
+        }}
+        title="新規レベル作成"
+        size="lg"
+        centered
+        zIndex={1004}
+        withinPortal={false}
+      >
+        <Stack spacing="md">
+          <Group grow>
+            <TextInput
+              label="レベル名"
+              placeholder="レベル名を入力"
+              value={newLevel.name}
+              onChange={(e) => setNewLevel(prev => ({ ...prev, name: e.target.value }))}
+              required
+            />
+            <TextInput
+              label="説明"
+              placeholder="レベルの説明（任意）"
+              value={newLevel.description}
+              onChange={(e) => setNewLevel(prev => ({ ...prev, description: e.target.value }))}
+            />
+          </Group>
+
+          <Text size="sm" fw={500} mt="md">原点設定</Text>
+          <Group grow>
+            <NumberInput
+              label="原点X座標 (mm)"
+              value={newLevel.originX}
+              onChange={(value) => setNewLevel(prev => ({ ...prev, originX: Number(value) || 0 }))}
+              step={0.1}
+              precision={2}
+            />
+            <NumberInput
+              label="原点Y座標 (mm)"
+              value={newLevel.originY}
+              onChange={(value) => setNewLevel(prev => ({ ...prev, originY: Number(value) || 0 }))}
+              step={0.1}
+              precision={2}
+            />
+          </Group>
+
+          <Text size="sm" fw={500} mt="md">回転・縮尺設定</Text>
+          <Group grow>
+            <NumberInput
+              label="回転角度 (度)"
+              value={newLevel.rotation}
+              onChange={(value) => setNewLevel(prev => ({ ...prev, rotation: Number(value) || 0 }))}
+              step={0.1}
+              precision={2}
+              min={-360}
+              max={360}
+            />
+            <NumberInput
+              label="X方向縮尺"
+              value={newLevel.scaleX}
+              onChange={(value) => setNewLevel(prev => ({ ...prev, scaleX: Number(value) || 1.0 }))}
+              step={0.1}
+              precision={3}
+              min={0.001}
+              max={1000}
+            />
+            <NumberInput
+              label="Y方向縮尺"
+              value={newLevel.scaleY}
+              onChange={(value) => setNewLevel(prev => ({ ...prev, scaleY: Number(value) || 1.0 }))}
+              step={0.1}
+              precision={3}
+              min={0.001}
+              max={1000}
+            />
+          </Group>
+
+          <Group grow mt="md">
+            <Button
+              variant="outline"
+              onClick={handleResetNewLevel}
+            >
+              リセット
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowNewLevelModal(false);
+                handleResetNewLevel();
+              }}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleCreateNewLevel}
+              disabled={!newLevel.name.trim()}
             >
               作成
             </Button>
