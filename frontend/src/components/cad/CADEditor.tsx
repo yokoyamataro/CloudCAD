@@ -65,6 +65,8 @@ import {
 // import { SXFConverter } from '../../modules/sxf/SXFConverter'; // 一時的に無効化
 import { SXFParser, readSXFFileWithEncoding } from '../../utils/sxfParser';
 import type { CADElement, PaperSize, PaperSettings, CADLayer, CADLevel, CADCoordinateSystem } from '../../types/cad';
+import { cadElementService } from '../../services/cadElementService';
+import { realtimeService } from '../../services/realtimeService';
 
 interface CADPoint {
   x: number;
@@ -130,6 +132,11 @@ export const CADEditor: React.FC<CADEditorProps> = ({
   const [editingElementProperties, setEditingElementProperties] = useState<CADElement | null>(null);
   const [showElementDetails, setShowElementDetails] = useState(false);
   const [selectedElementDetails, setSelectedElementDetails] = useState<CADElement | null>(null);
+  
+  // データベース連携用の状態
+  const [currentDrawingId, setCurrentDrawingId] = useState<string | null>(null);
+  const [currentLayerId, setCurrentLayerId] = useState<string | null>(null);
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
   
   // 現在の描画プロパティ
   const [currentDrawingProperties, setCurrentDrawingProperties] = useState({
@@ -1689,6 +1696,12 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     setElements(prev => prev.map(el => 
       el.id === updatedElement.id ? updatedElement : el
     ));
+    
+    // データベースに永続化
+    if (updatedElement.id) {
+      persistElementUpdate(updatedElement.id, updatedElement);
+    }
+    
     setShowPropertiesPanel(false);
     setEditingElementProperties(null);
   };
@@ -2506,6 +2519,9 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       };
       
       setElements(prev => [...prev, newElement]);
+      
+      // データベースに永続化
+      persistElement(newElement);
     }
     
     // 線描画状態をリセット
@@ -2530,11 +2546,134 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     }
   }, [isLineDrawing, finishLineDrawing]);
 
+  // API要素からCAD要素への変換
+  const convertApiElementToCAD = (apiElement: any): CADElement => {
+    const baseElement: Partial<CADElement> = {
+      id: apiElement.id,
+      type: apiElement.type,
+      visible: apiElement.visible !== false,
+      locked: apiElement.locked || false,
+      layerId: apiElement.layerId,
+      properties: typeof apiElement.properties === 'string' 
+        ? JSON.parse(apiElement.properties) 
+        : apiElement.properties,
+      style: typeof apiElement.style === 'string' 
+        ? JSON.parse(apiElement.style) 
+        : apiElement.style
+    };
+
+    // WKTジオメトリから座標情報を復元
+    const geometryData = cadElementService.convertFromWKT(apiElement.geometry, apiElement.type);
+    
+    return {
+      ...baseElement,
+      ...geometryData,
+      position: geometryData.position || { x: 0, y: 0 }
+    } as CADElement;
+  };
+
+  // CAD要素の永続化（作成）
+  const persistElement = async (element: CADElement) => {
+    if (!currentDrawingId || !projectId) return;
+    
+    try {
+      const apiElement = cadElementService.convertToApiElement(element, currentDrawingId, projectId);
+      await cadElementService.createElement(apiElement);
+    } catch (error) {
+      console.error('Failed to persist element:', error);
+    }
+  };
+
+  // CAD要素の永続化（更新）
+  const persistElementUpdate = async (elementId: string, updates: Partial<CADElement>) => {
+    if (!projectId) return;
+    
+    try {
+      const updateData: any = {};
+      if (updates.position || updates.startPosition || updates.endPosition || updates.points) {
+        const tempElement = { ...updates, id: elementId } as CADElement;
+        updateData.geometry = cadElementService.convertGeometryToWKT(tempElement);
+      }
+      if (updates.properties) updateData.properties = updates.properties;
+      if (updates.style) updateData.style = updates.style;
+      if (updates.visible !== undefined) updateData.visible = updates.visible;
+      if (updates.locked !== undefined) updateData.locked = updates.locked;
+      if (updates.layerId) updateData.layerId = updates.layerId;
+      
+      updateData.projectId = projectId;
+      
+      await cadElementService.updateElement(elementId, updateData);
+    } catch (error) {
+      console.error('Failed to persist element update:', error);
+    }
+  };
+
   // キーボードイベントリスナー
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  // リアルタイム機能の初期化
+  useEffect(() => {
+    // プロジェクトに参加
+    realtimeService.joinProject(projectId);
+    setIsRealtimeConnected(realtimeService.isConnected());
+
+    // 要素作成イベント
+    const handleElementCreated = (element: any) => {
+      setElements(prev => {
+        // 重複を避けて追加
+        if (prev.some(e => e.id === element.id)) return prev;
+        
+        const cadElement = convertApiElementToCAD(element);
+        return [...prev, cadElement];
+      });
+    };
+
+    // 要素更新イベント
+    const handleElementUpdated = (element: any) => {
+      setElements(prev => prev.map(e => 
+        e.id === element.id ? { ...e, ...convertApiElementToCAD(element) } : e
+      ));
+    };
+
+    // 要素削除イベント
+    const handleElementDeleted = (data: { id: string }) => {
+      setElements(prev => prev.filter(e => e.id !== data.id));
+    };
+
+    // 一括更新イベント
+    const handleElementsBatchUpdated = (elements: any[]) => {
+      setElements(prev => {
+        const updatedMap = new Map(elements.map(el => [el.id, convertApiElementToCAD(el)]));
+        return prev.map(e => updatedMap.has(e.id) ? updatedMap.get(e.id)! : e);
+      });
+    };
+
+    // 座標更新イベント（リアルタイム）
+    const handleCoordinateUpdate = (data: any) => {
+      // 他のユーザーの座標変更を視覚的に表示（実装は後で）
+      console.log('Coordinate update from other user:', data);
+    };
+
+    // イベントリスナーを登録
+    realtimeService.on('element-created', handleElementCreated);
+    realtimeService.on('element-updated', handleElementUpdated);
+    realtimeService.on('element-deleted', handleElementDeleted);
+    realtimeService.on('elements-batch-updated', handleElementsBatchUpdated);
+    realtimeService.on('coordinate-update', handleCoordinateUpdate);
+
+    return () => {
+      // クリーンアップ
+      realtimeService.off('element-created', handleElementCreated);
+      realtimeService.off('element-updated', handleElementUpdated);
+      realtimeService.off('element-deleted', handleElementDeleted);
+      realtimeService.off('elements-batch-updated', handleElementsBatchUpdated);
+      realtimeService.off('coordinate-update', handleCoordinateUpdate);
+      realtimeService.leaveProject(projectId);
+    };
+  }, [projectId]);
 
   // 初期化時に用紙を中央に配置
   useEffect(() => {
@@ -2725,6 +2864,10 @@ export const CADEditor: React.FC<CADEditorProps> = ({
     };
     
     setElements(prev => [...prev, newElement]);
+    
+    // データベースに永続化
+    persistElement(newElement);
+    
     setIsDrawing(false);
     setCurrentPath([]);
   };
@@ -4463,6 +4606,10 @@ export const CADEditor: React.FC<CADEditorProps> = ({
                   };
                   
                   setElements(prev => [...prev, newElement]);
+                  
+                  // データベースに永続化
+                  persistElement(newElement);
+                  
                   setShowCoordinateInput(false);
                   console.log('座標入力による測量点を配置しました:', coordinateTransform.formatCoordinate(coordinateInput.x, coordinateInput.y, coordinateDisplayMode, paperSettings.coordinateSystem || 9));
                 }}

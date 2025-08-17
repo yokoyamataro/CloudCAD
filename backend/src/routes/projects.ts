@@ -28,8 +28,7 @@ router.get('/', asyncHandler(async (req, res) => {
       _count: {
         select: {
           drawings: true,
-          surveyPoints: true,
-          boundaryLines: true
+          surveyPoints: true
         }
       }
     }
@@ -92,7 +91,6 @@ router.get('/:projectId', checkProjectAccess('viewer'), asyncHandler(async (req,
         select: {
           drawings: true,
           surveyPoints: true,
-          boundaryLines: true,
           landParcels: true
         }
       }
