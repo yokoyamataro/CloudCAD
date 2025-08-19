@@ -13,6 +13,7 @@ import drawingRoutes from './routes/drawings';
 import sxfRoutes from './routes/sxf';
 import memberRoutes from './routes/members';
 import elementRoutes from './routes/elements';
+import projectOptionRoutes from './routes/project-options';
 // import taskRoutes from './routes/tasks';
 
 // ミドルウェアのインポート
@@ -132,6 +133,7 @@ app.use('/api/elements', authenticateToken, elementRoutes);
 // テスト用: 認証なしでアクセス可能なエンドポイント
 app.use('/api/elements-test', elementRoutes);
 app.use('/api', authenticateToken, memberRoutes);
+app.use('/api/project-options', authenticateToken, projectOptionRoutes);
 // app.use('/api', authenticateToken, taskRoutes);
 
 // エラーハンドリングミドルウェア

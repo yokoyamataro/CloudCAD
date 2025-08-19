@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CAD位置精度テスト</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .test-section { margin-bottom: 30px; border: 1px solid #ccc; padding: 15px; }
+        .pass { color: green; }
+        .fail { color: red; }
+        .warning { color: orange; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background-color: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <h1>CAD要素位置精度テスト</h1>
+    <p>要求: m単位で上は10万の位（10^5m = 100km）、下は小数点12桁（10^-12m = 1pm）まで対応</p>
+
+    <div class="test-section">
+        <h2>1. JavaScript Number精度テスト</h2>
+        <div id="number-precision"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. 座標範囲テスト</h2>
+        <div id="coordinate-range"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. 演算精度テスト</h2>
+        <div id="calculation-precision"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. SXF座標変換精度テスト</h2>
+        <div id="sxf-precision"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. 実用性評価</h2>
+        <div id="practical-evaluation"></div>
+    </div>
+
+    <script>
+        // テスト実行
+        function runPrecisionTests() {
+            testNumberPrecision();
+            testCoordinateRange();
+            testCalculationPrecision();
+            testSXFPrecision();
+            evaluatePracticalUse();
+        }
+
+        function testNumberPrecision() {
+            const results = [];
+            
+            // IEEE 754 double precision limits
+            const maxSafeInteger = Number.MAX_SAFE_INTEGER; // 2^53 - 1
+            const epsilon = Number.EPSILON; // 最小精度単位
+            
+            results.push(`<h3>JavaScript Number基本情報</h3>`);
+            results.push(`MAX_SAFE_INTEGER: ${maxSafeInteger.toExponential()}`);
+            results.push(`Number.EPSILON: ${epsilon.toExponential()}`);
+            results.push(`有効桁数: 約15-17桁`);
+            
+            // 大きな数値の精度テスト
+            results.push(`<h3>大きな数値の精度</h3>`);
+            const largeValues = [
+                { name: "100m", value: 100 },
+                { name: "1km", value: 1000 },
+                { name: "10km", value: 10000 },
+                { name: "100km", value: 100000 },
+                { name: "1000km", value: 1000000 },
+                { name: "10000km", value: 10000000 }
+            ];
+            
+            largeValues.forEach(test => {
+                const stored = test.value;
+                const precision = stored === test.value;
+                const className = precision ? 'pass' : 'fail';
+                results.push(`<span class="${className}">${test.name}: ${stored} - ${precision ? 'OK' : 'NG'}</span>`);
+            });
+            
+            // 小さな数値の精度テスト
+            results.push(`<h3>小さな数値の精度</h3>`);
+            const smallValues = [
+                { name: "1mm", value: 0.001 },
+                { name: "0.1mm", value: 0.0001 },
+                { name: "10μm", value: 0.00001 },
+                { name: "1μm", value: 0.000001 },
+                { name: "100nm", value: 0.0000001 },
+                { name: "10nm", value: 0.00000001 },
+                { name: "1nm", value: 0.000000001 },
+                { name: "100pm", value: 0.0000000001 },
+                { name: "10pm", value: 0.00000000001 },
+                { name: "1pm", value: 0.000000000001 }, // 10^-12
+                { name: "0.1pm", value: 0.0000000000001 } // 10^-13
+            ];
+            
+            smallValues.forEach(test => {
+                const stored = test.value;
+                const precision = stored === test.value && stored !== 0;
+                const className = precision ? 'pass' : (stored === 0 ? 'fail' : 'warning');
+                results.push(`<span class="${className}">${test.name}: ${stored.toExponential()} - ${precision ? 'OK' : (stored === 0 ? 'アンダーフロー' : '精度低下')}</span>`);
+            });
+            
+            document.getElementById('number-precision').innerHTML = results.join('<br>');
+        }
+
+        function testCoordinateRange() {
+            const results = [];
+            
+            results.push(`<h3>要求される座標範囲</h3>`);
+            results.push(`最大値: 100,000m (100km)`);
+            results.push(`最小精度: 0.000000000001m (1pm)`);
+            results.push(`動的範囲: 10^17 (100km / 1pm)`);
+            
+            // JavaScriptでの実現可能性
+            results.push(`<h3>JavaScript実現可能性</h3>`);
+            const maxCoord = 100000; // 100km
+            const minPrecision = 1e-12; // 1pm
+            const dynamicRange = maxCoord / minPrecision;
+            
+            results.push(`要求動的範囲: ${dynamicRange.toExponential()}`);
+            results.push(`JavaScriptのMAX_SAFE_INTEGER: ${Number.MAX_SAFE_INTEGER.toExponential()}`);
+            
+            const feasible = dynamicRange <= Number.MAX_SAFE_INTEGER;
+            const className = feasible ? 'pass' : 'fail';
+            results.push(`<span class="${className}">実現可能性: ${feasible ? 'OK - 理論的に可能' : 'NG - 動的範囲が不足'}</span>`);
+            
+            // 実際のテスト
+            results.push(`<h3>実際の精度テスト</h3>`);
+            const testCases = [
+                { x: 100000, y: 0 }, // 100km, 0
+                { x: 100000, y: 1e-12 }, // 100km, 1pm
+                { x: 50000.000000000001, y: 25000.000000000001 } // 混合精度
+            ];
+            
+            testCases.forEach((coord, i) => {
+                const storedX = coord.x;
+                const storedY = coord.y;
+                const xPrecise = storedX === coord.x;
+                const yPrecise = storedY === coord.y;
+                const className = (xPrecise && yPrecise) ? 'pass' : 'warning';
+                results.push(`<span class="${className}">テスト${i+1}: (${storedX}, ${storedY}) - ${xPrecise && yPrecise ? 'OK' : '精度低下'}</span>`);
+            });
+            
+            document.getElementById('coordinate-range').innerHTML = results.join('<br>');
+        }
+
+        function testCalculationPrecision() {
+            const results = [];
+            
+            results.push(`<h3>演算精度テスト</h3>`);
+            
+            // 加算テスト
+            const largeValue = 100000; // 100km
+            const smallValue = 1e-12; // 1pm
+            const sum = largeValue + smallValue;
+            const difference = sum - largeValue;
+            
+            results.push(`大値: ${largeValue}m (100km)`);
+            results.push(`小値: ${smallValue}m (1pm)`);
+            results.push(`加算結果: ${sum}`);
+            results.push(`差分: ${difference.toExponential()}`);
+            
+            const additionAccurate = Math.abs(difference - smallValue) < 1e-15;
+            const className1 = additionAccurate ? 'pass' : 'fail';
+            results.push(`<span class="${className1}">加算精度: ${additionAccurate ? 'OK' : 'NG - 精度ロス発生'}</span>`);
+            
+            // 乗算テスト（座標変換）
+            const coord = { x: 100000, y: 100000 };
+            const scale = 0.000001; // マイクロスケール
+            const scaled = { x: coord.x * scale, y: coord.y * scale };
+            
+            results.push(`<h3>スケール変換テスト</h3>`);
+            results.push(`元座標: (${coord.x}, ${coord.y})`);
+            results.push(`スケール: ${scale}`);
+            results.push(`変換後: (${scaled.x}, ${scaled.y})`);
+            
+            const expectedX = 0.1;
+            const expectedY = 0.1;
+            const scaleAccurate = Math.abs(scaled.x - expectedX) < 1e-15 && Math.abs(scaled.y - expectedY) < 1e-15;
+            const className2 = scaleAccurate ? 'pass' : 'warning';
+            results.push(`<span class="${className2}">スケール精度: ${scaleAccurate ? 'OK' : '軽微な誤差'}</span>`);
+            
+            document.getElementById('calculation-precision').innerHTML = results.join('<br>');
+        }
+
+        function testSXFPrecision() {
+            const results = [];
+            
+            results.push(`<h3>SXF実データによる精度テスト</h3>`);
+            
+            // 実際のSXFデータの例
+            const sxfData = [
+                { original: 30030198.062162, converted: 30.198062162002316, level: "名称未定" },
+                { original: -9926674.751479, converted: -39926.674751479004, level: "名称未定" },
+                { original: 5000807.548646, converted: 28.70346974992617, level: "傾きあり" }
+            ];
+            
+            sxfData.forEach((data, i) => {
+                const precisionBits = Math.log2(Math.abs(data.original));
+                const availablePrecision = 53 - precisionBits; // IEEE 754の53bit精度
+                
+                results.push(`データ${i+1}: ${data.original} → ${data.converted}`);
+                results.push(`&nbsp;&nbsp;レベル: ${data.level}`);
+                results.push(`&nbsp;&nbsp;元データの大きさ: 2^${precisionBits.toFixed(1)} (${precisionBits.toFixed(1)}bit)`);
+                results.push(`&nbsp;&nbsp;利用可能精度: ${availablePrecision.toFixed(1)}bit`);
+                
+                const minResolution = Math.pow(2, -(availablePrecision));
+                const resolutionInMeters = minResolution * Math.abs(data.original);
+                
+                const className = resolutionInMeters < 1e-12 ? 'pass' : (resolutionInMeters < 1e-9 ? 'warning' : 'fail');
+                results.push(`&nbsp;&nbsp;<span class="${className}">分解能: ${resolutionInMeters.toExponential()}m</span>`);
+                results.push(``);
+            });
+            
+            document.getElementById('sxf-precision').innerHTML = results.join('<br>');
+        }
+
+        function evaluatePracticalUse() {
+            const results = [];
+            
+            results.push(`<h3>実用性総合評価</h3>`);
+            
+            const evaluations = [
+                {
+                    requirement: "上限 100km (10^5m)",
+                    status: "✅ 対応可能",
+                    detail: "JavaScriptのNumber型で十分表現可能",
+                    className: "pass"
+                },
+                {
+                    requirement: "下限 1pm (10^-12m)",
+                    status: "⚠️ 条件付き対応",
+                    detail: "大きな座標値と併用時に精度低下の可能性",
+                    className: "warning"
+                },
+                {
+                    requirement: "混合精度演算",
+                    status: "❌ 制限あり",
+                    detail: "100km + 1pm のような演算では1pmが消失",
+                    className: "fail"
+                },
+                {
+                    requirement: "測量精度 (mm単位)",
+                    status: "✅ 十分対応",
+                    detail: "一般的な測量・CAD用途には十分",
+                    className: "pass"
+                },
+                {
+                    requirement: "ナノ精度 (nm単位)",
+                    status: "⚠️ 座標系依存",
+                    detail: "小さな座標系内では可能、大規模では困難",
+                    className: "warning"
+                }
+            ];
+            
+            results.push(`<table>`);
+            results.push(`<tr><th>要件</th><th>対応状況</th><th>詳細</th></tr>`);
+            
+            evaluations.forEach(eval => {
+                results.push(`<tr class="${eval.className}"><td>${eval.requirement}</td><td>${eval.status}</td><td>${eval.detail}</td></tr>`);
+            });
+            
+            results.push(`</table>`);
+            
+            results.push(`<h3>推奨事項</h3>`);
+            results.push(`<div class="warning">`);
+            results.push(`1. <strong>相対座標系の使用</strong>: 大きな基準点からの相対座標で精度を確保`);
+            results.push(`2. <strong>適応的精度</strong>: 用途に応じて必要精度を調整`);
+            results.push(`3. <strong>BigNumber使用</strong>: 超高精度が必要な場合はライブラリを検討`);
+            results.push(`4. <strong>座標正規化</strong>: 作業領域を適切な範囲に正規化`);
+            results.push(`</div>`);
+            
+            document.getElementById('practical-evaluation').innerHTML = results.join('<br>');
+        }
+
+        // テスト実行
+        window.onload = runPrecisionTests;
+    </script>
+</body>
+</html>

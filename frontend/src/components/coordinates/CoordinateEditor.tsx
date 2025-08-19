@@ -30,7 +30,8 @@ import {
   IconUsers,
   IconTrash,
   IconDownload,
-  IconUpload
+  IconUpload,
+  IconX
 } from '@tabler/icons-react';
 import type { Project } from '../../types/project';
 import { CoordinateLotViewer } from '../viewer/CoordinateLotViewer';
@@ -39,6 +40,8 @@ import {
   generateLotData, 
   generateLandownerData,
   formatLotNumber,
+  getDefaultStakeTypes,
+  getDefaultInstallationCategories,
   type CoordinatePoint as MockCoordinatePoint,
   type LotData as MockLotData,
   type LandownerData as MockLandownerData
@@ -67,6 +70,11 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   const [selectedCoordinates, setSelectedCoordinates] = useState<Set<string>>(new Set());
   const [showSIMModal, setShowSIMModal] = useState(false);
   const [simAction, setSIMAction] = useState<'read' | 'write'>('read');
+  
+  // インライン編集状態管理
+  const [editingCoordId, setEditingCoordId] = useState<string | null>(null);
+  const [editingCoordField, setEditingCoordField] = useState<string | null>(null);
+  const [editingCoordValue, setEditingCoordValue] = useState<string>('');
   
   // フィルター状態管理（複数選択対応）
   const [filters, setFilters] = useState({
@@ -173,6 +181,43 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   const handleBulkDelete = () => {
     setCoordinateData(prev => prev.filter(coord => !selectedCoordinates.has(coord.id)));
     setSelectedCoordinates(new Set());
+  };
+
+  // 座標インライン編集関数
+  const startCoordInlineEdit = (coordId: string, field: string, currentValue: string) => {
+    setEditingCoordId(coordId);
+    setEditingCoordField(field);
+    setEditingCoordValue(currentValue);
+  };
+
+  const saveCoordInlineEdit = () => {
+    if (editingCoordId && editingCoordField) {
+      setCoordinateData(prev => prev.map(coord => 
+        coord.id === editingCoordId 
+          ? { 
+              ...coord, 
+              [editingCoordField]: editingCoordField === 'x' || editingCoordField === 'y' || editingCoordField === 'z'
+                ? parseFloat(editingCoordValue) || 0 
+                : editingCoordValue 
+            }
+          : coord
+      ));
+    }
+    cancelCoordInlineEdit();
+  };
+
+  const cancelCoordInlineEdit = () => {
+    setEditingCoordId(null);
+    setEditingCoordField(null);
+    setEditingCoordValue('');
+  };
+
+  const handleCoordKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      saveCoordInlineEdit();
+    } else if (e.key === 'Escape') {
+      cancelCoordInlineEdit();
+    }
   };
 
   // SIM読込・書込関数
@@ -326,7 +371,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
               <Paper shadow="sm" p={20} withBorder>
                 <Stack gap="md">
                   <div>
-                    <Text size="sm" c="dimmed">測量基準点・境界点の座標データを管理します</Text>
+                    <Text size="sm" c="dimmed">測量基準点・境界点の座標データを管理します - 各項目をクリックして直接編集できます</Text>
                     {activeFilterCount > 0 && (
                       <Text size="sm" c="orange" fw={600}>
                         {activeFilterCount}個のフィルター適用中 ({filteredCoordinateData.length}/{coordinateData.length}件表示)
@@ -420,6 +465,8 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                           <Table.Th>X座標 (m)</Table.Th>
                           <Table.Th>Y座標 (m)</Table.Th>
                           <Table.Th>標高 (m)</Table.Th>
+                          <Table.Th>杭種</Table.Th>
+                          <Table.Th>設置区分</Table.Th>
                           <Table.Th>担当者</Table.Th>
                           <Table.Th>状態</Table.Th>
                           <Table.Th>測量日</Table.Th>
@@ -436,42 +483,253 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                           </Table.Td>
                           <Table.Td>
                             <div>
-                              <Text fw={600}>{coord.pointName}</Text>
-                              <Text size="xs" c="dimmed">{coord.description}</Text>
+                              {editingCoordId === coord.id && editingCoordField === 'pointName' ? (
+                                <TextInput
+                                  value={editingCoordValue}
+                                  onChange={(e) => setEditingCoordValue(e.target.value)}
+                                  onKeyDown={handleCoordKeyPress}
+                                  onBlur={saveCoordInlineEdit}
+                                  size="xs"
+                                  autoFocus
+                                  style={{ marginBottom: 4 }}
+                                />
+                              ) : (
+                                <Text 
+                                  fw={600}
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={() => startCoordInlineEdit(coord.id, 'pointName', coord.pointName)}
+                                >
+                                  {coord.pointName}
+                                </Text>
+                              )}
+                              {editingCoordId === coord.id && editingCoordField === 'description' ? (
+                                <TextInput
+                                  value={editingCoordValue}
+                                  onChange={(e) => setEditingCoordValue(e.target.value)}
+                                  onKeyDown={handleCoordKeyPress}
+                                  onBlur={saveCoordInlineEdit}
+                                  size="xs"
+                                  autoFocus
+                                />
+                              ) : (
+                                <Text 
+                                  size="xs" 
+                                  c="dimmed"
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={() => startCoordInlineEdit(coord.id, 'description', coord.description || '')}
+                                >
+                                  {coord.description}
+                                </Text>
+                              )}
                             </div>
                           </Table.Td>
                           <Table.Td>
-                            <Badge color={getTypeBadgeColor(coord.type)} variant="light">
-                              {getTypeLabel(coord.type)}
-                            </Badge>
+                            {editingCoordId === coord.id && editingCoordField === 'type' ? (
+                              <Select
+                                value={editingCoordValue}
+                                onChange={(value) => {
+                                  setEditingCoordValue(value || '');
+                                  setTimeout(saveCoordInlineEdit, 100);
+                                }}
+                                data={[
+                                  { value: 'benchmark', label: '基準点' },
+                                  { value: 'control_point', label: '制御点' },
+                                  { value: 'boundary_point', label: '境界点' }
+                                ]}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Badge 
+                                color={getTypeBadgeColor(coord.type)} 
+                                variant="light"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'type', coord.type)}
+                              >
+                                {getTypeLabel(coord.type)}
+                              </Badge>
+                            )}
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                              {coord.x.toFixed(3)}
-                            </Text>
+                            {editingCoordId === coord.id && editingCoordField === 'x' ? (
+                              <TextInput
+                                type="number"
+                                value={editingCoordValue}
+                                onChange={(e) => setEditingCoordValue(e.target.value)}
+                                onKeyDown={handleCoordKeyPress}
+                                onBlur={saveCoordInlineEdit}
+                                size="xs"
+                                autoFocus
+                                step="0.001"
+                                style={{ fontFamily: 'monospace', width: '100px' }}
+                              />
+                            ) : (
+                              <Text 
+                                size="sm" 
+                                style={{ fontFamily: 'monospace', cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'x', coord.x.toString())}
+                              >
+                                {coord.x.toFixed(3)}
+                              </Text>
+                            )}
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                              {coord.y.toFixed(3)}
-                            </Text>
+                            {editingCoordId === coord.id && editingCoordField === 'y' ? (
+                              <TextInput
+                                type="number"
+                                value={editingCoordValue}
+                                onChange={(e) => setEditingCoordValue(e.target.value)}
+                                onKeyDown={handleCoordKeyPress}
+                                onBlur={saveCoordInlineEdit}
+                                size="xs"
+                                autoFocus
+                                step="0.001"
+                                style={{ fontFamily: 'monospace', width: '100px' }}
+                              />
+                            ) : (
+                              <Text 
+                                size="sm" 
+                                style={{ fontFamily: 'monospace', cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'y', coord.y.toString())}
+                              >
+                                {coord.y.toFixed(3)}
+                              </Text>
+                            )}
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm" style={{ fontFamily: 'monospace' }}>
-                              {coord.z.toFixed(3)}
-                            </Text>
+                            {editingCoordId === coord.id && editingCoordField === 'z' ? (
+                              <TextInput
+                                type="number"
+                                value={editingCoordValue}
+                                onChange={(e) => setEditingCoordValue(e.target.value)}
+                                onKeyDown={handleCoordKeyPress}
+                                onBlur={saveCoordInlineEdit}
+                                size="xs"
+                                autoFocus
+                                step="0.001"
+                                style={{ fontFamily: 'monospace', width: '100px' }}
+                              />
+                            ) : (
+                              <Text 
+                                size="sm" 
+                                style={{ fontFamily: 'monospace', cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'z', coord.z.toString())}
+                              >
+                                {coord.z.toFixed(3)}
+                              </Text>
+                            )}
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm" c={coord.assignee === '未割当' ? 'dimmed' : undefined}>
-                              {coord.assignee}
-                            </Text>
+                            {editingCoordId === coord.id && editingCoordField === 'stakeType' ? (
+                              <Select
+                                value={editingCoordValue}
+                                onChange={(value) => {
+                                  setEditingCoordValue(value || '');
+                                  setTimeout(saveCoordInlineEdit, 100);
+                                }}
+                                data={getDefaultStakeTypes()}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Text 
+                                size="sm"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'stakeType', coord.stakeType || '')}
+                              >
+                                {coord.stakeType || '-'}
+                              </Text>
+                            )}
                           </Table.Td>
                           <Table.Td>
-                            <Badge color={getStatusBadgeColor(coord.status)} variant="light" size="sm">
-                              {coord.status}
-                            </Badge>
+                            {editingCoordId === coord.id && editingCoordField === 'installationCategory' ? (
+                              <Select
+                                value={editingCoordValue}
+                                onChange={(value) => {
+                                  setEditingCoordValue(value || '');
+                                  setTimeout(saveCoordInlineEdit, 100);
+                                }}
+                                data={getDefaultInstallationCategories()}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Text 
+                                size="sm"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'installationCategory', coord.installationCategory || '')}
+                              >
+                                {coord.installationCategory || '-'}
+                              </Text>
+                            )}
                           </Table.Td>
                           <Table.Td>
-                            <Text size="sm">{coord.surveyDate}</Text>
+                            {editingCoordId === coord.id && editingCoordField === 'assignee' ? (
+                              <Select
+                                value={editingCoordValue}
+                                onChange={(value) => {
+                                  setEditingCoordValue(value || '');
+                                  setTimeout(saveCoordInlineEdit, 100);
+                                }}
+                                data={getUniqueAssignees()}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Text 
+                                size="sm" 
+                                c={coord.assignee === '未割当' ? 'dimmed' : undefined}
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'assignee', coord.assignee)}
+                              >
+                                {coord.assignee}
+                              </Text>
+                            )}
+                          </Table.Td>
+                          <Table.Td>
+                            {editingCoordId === coord.id && editingCoordField === 'status' ? (
+                              <Select
+                                value={editingCoordValue}
+                                onChange={(value) => {
+                                  setEditingCoordValue(value || '');
+                                  setTimeout(saveCoordInlineEdit, 100);
+                                }}
+                                data={getUniqueStatuses()}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Badge 
+                                color={getStatusBadgeColor(coord.status)} 
+                                variant="light" 
+                                size="sm"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'status', coord.status)}
+                              >
+                                {coord.status}
+                              </Badge>
+                            )}
+                          </Table.Td>
+                          <Table.Td>
+                            {editingCoordId === coord.id && editingCoordField === 'surveyDate' ? (
+                              <TextInput
+                                type="date"
+                                value={editingCoordValue}
+                                onChange={(e) => setEditingCoordValue(e.target.value)}
+                                onKeyDown={handleCoordKeyPress}
+                                onBlur={saveCoordInlineEdit}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Text 
+                                size="sm"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'surveyDate', coord.surveyDate)}
+                              >
+                                {coord.surveyDate}
+                              </Text>
+                            )}
                           </Table.Td>
                         </Table.Tr>
                       ))}
@@ -710,6 +968,85 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
           console.log('地番クリック:', lot.lotNumber);
         }}
       />
+
+      {/* SIM読込・書込モーダル */}
+      {showSIMModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 3000,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            paddingTop: '50px'
+          }}
+          onClick={() => setShowSIMModal(false)}
+        >
+          <Paper
+            shadow="xl"
+            p="xl"
+            style={{
+              width: '500px',
+              maxWidth: '90vw',
+              maxHeight: '80vh',
+              overflow: 'auto'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Group justify="space-between" mb="md">
+              <Title order={3}>
+                {simAction === 'read' ? 'SIM読込' : 'SIM書込'}
+              </Title>
+              <ActionIcon
+                variant="subtle"
+                onClick={() => setShowSIMModal(false)}
+              >
+                <IconX size={18} />
+              </ActionIcon>
+            </Group>
+            
+            <Stack gap="md">
+              <Text size="sm" c="dimmed">
+                {simAction === 'read' 
+                  ? 'SIMファイルから座標データを読み込みます。ファイルを選択してください。'
+                  : '現在の座標データをSIMファイル形式で書き出します。'
+                }
+              </Text>
+              
+              {simAction === 'read' && (
+                <FileInput
+                  label="SIMファイル"
+                  placeholder="ファイルを選択..."
+                  accept=".sim,.txt"
+                  onChange={handleSIMProcess}
+                />
+              )}
+              
+              {simAction === 'write' && (
+                <Group justify="flex-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowSIMModal(false)}
+                  >
+                    キャンセル
+                  </Button>
+                  <Button
+                    onClick={() => handleSIMProcess(null)}
+                    leftSection={<IconDownload size={16} />}
+                  >
+                    SIMファイル書き出し
+                  </Button>
+                </Group>
+              )}
+            </Stack>
+          </Paper>
+        </div>
+      )}
     </div>
   );
 };
