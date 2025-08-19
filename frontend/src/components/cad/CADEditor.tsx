@@ -4302,7 +4302,149 @@ export const CADEditor: React.FC<CADEditorProps> = ({
       
       
       {/* CAD編集メインコンテンツ */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'row', width: '100%' }}>
+        
+        {/* 左側ツールバー */}
+        <Paper 
+          shadow="sm" 
+          style={{ 
+            width: '60px', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 8px',
+            borderRadius: '0',
+            borderRight: '1px solid #dee2e6',
+            backgroundColor: '#f8f9fa'
+          }}
+        >
+          {/* 選択ツール */}
+          <Tooltip label="選択" position="right">
+            <ActionIcon
+              variant={tool === 'pointer' ? 'filled' : 'light'}
+              color={tool === 'pointer' ? 'blue' : 'gray'}
+              size="lg"
+              onClick={() => setTool('pointer')}
+            >
+              <IconPointer size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          {/* 線分ツール */}
+          <Tooltip label="線分" position="right">
+            <ActionIcon
+              variant={tool === 'line' ? 'filled' : 'light'}
+              color={tool === 'line' ? 'blue' : 'gray'}
+              size="lg"
+              onClick={() => setTool('line')}
+            >
+              <IconLine size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          {/* 円ツール */}
+          <Tooltip label="円" position="right">
+            <ActionIcon
+              variant={tool === 'circle' ? 'filled' : 'light'}
+              color={tool === 'circle' ? 'blue' : 'gray'}
+              size="lg"
+              onClick={() => setTool('circle')}
+            >
+              <IconCircle size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          {/* 点要素ツール */}
+          <Tooltip label="点要素" position="right">
+            <ActionIcon
+              variant={tool === 'point' ? 'filled' : 'light'}
+              color={tool === 'point' ? 'blue' : 'gray'}
+              size="lg"
+              onClick={() => setTool('point')}
+            >
+              <IconTarget size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          {/* テキストツール */}
+          <Tooltip label="テキスト" position="right">
+            <ActionIcon
+              variant={tool === 'text' ? 'filled' : 'light'}
+              color={tool === 'text' ? 'blue' : 'gray'}
+              size="lg"
+              onClick={() => setTool('text')}
+            >
+              <IconTypography size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          <div style={{ width: '100%', height: '1px', backgroundColor: '#dee2e6', margin: '8px 0' }} />
+          
+          {/* 測量点ツール */}
+          <Tooltip label="測量点" position="right">
+            <ActionIcon
+              variant={tool === 'survey_point' ? 'filled' : 'light'}
+              color={tool === 'survey_point' ? 'green' : 'gray'}
+              size="lg"
+              onClick={() => setTool('survey_point')}
+            >
+              <IconMapPin size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          {/* 境界線ツール */}
+          <Tooltip label="境界線" position="right">
+            <ActionIcon
+              variant={tool === 'boundary_line' ? 'filled' : 'light'}
+              color={tool === 'boundary_line' ? 'orange' : 'gray'}
+              size="lg"
+              onClick={() => setTool('boundary_line')}
+            >
+              <IconBuildingBridge size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          {/* ベジェ曲線ツール */}
+          <Tooltip label="ベジェ曲線" position="right">
+            <ActionIcon
+              variant={tool === 'bezier' ? 'filled' : 'light'}
+              color={tool === 'bezier' ? 'purple' : 'gray'}
+              size="lg"
+              onClick={() => setTool('bezier')}
+            >
+              <IconWaveSine size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          <div style={{ width: '100%', height: '1px', backgroundColor: '#dee2e6', margin: '8px 0' }} />
+          
+          {/* 寸法ツール */}
+          <Tooltip label="寸法" position="right">
+            <ActionIcon
+              variant={tool === 'dimension' ? 'filled' : 'light'}
+              color={tool === 'dimension' ? 'teal' : 'gray'}
+              size="lg"
+              onClick={() => setTool('dimension')}
+            >
+              <IconRuler2 size={20} />
+            </ActionIcon>
+          </Tooltip>
+          
+          {/* 設定ツール */}
+          <div style={{ marginTop: 'auto' }}>
+            <Tooltip label="設定" position="right">
+              <ActionIcon
+                variant="light"
+                color="gray"
+                size="lg"
+                onClick={() => setShowPaperModal(true)}
+              >
+                <IconSettings size={20} />
+              </ActionIcon>
+            </Tooltip>
+          </div>
+        </Paper>
           
           {/* CAD編集メインキャンバス */}
           <Box style={{ flex: 1, position: 'relative', overflow: 'hidden', width: '100%' }}>

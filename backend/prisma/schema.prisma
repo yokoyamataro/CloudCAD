@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,152 +7,126 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-// User管理
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  password  String
-  role      String   @default("user") // admin, surveyor, user
-  avatar    String?  // アバター画像URL
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  // リレーション
-  projects      ProjectUser[]
+  id            String           @id @default(cuid())
+  email         String           @unique
+  name          String
+  password      String
+  role          String           @default("user")
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
   drawings      Drawing[]
-  surveyPoints  SurveyPoint[]
   modifications DrawingElement[]
-  createdTasks  Task[]         @relation("TaskCreator")
-  assignedTasks Task[]         @relation("TaskAssignee")
-  taskComments  TaskComment[]
+  projects      ProjectUser[]
+  surveyPoints  SurveyPoint[]
 }
 
-// プロジェクト（測量案件・地籍調査案件）
 model Project {
-  id                String   @id @default(cuid())
-  name              String
-  description       String?
-  surveyArea        String?  // 調査地区
-  coordinateSystem  String   @default("JGD2000") // 座標系
-  units             String   @default("m") // 単位
-  boundingBox       String?  // 範囲（JSON）
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
-  // リレーション
-  users           ProjectUser[]
-  drawings        Drawing[]
-  layers          Layer[]
-  surveyPoints    SurveyPoint[]
-  landParcels     LandParcel[]
-  tasks           Task[]
+  id               String          @id @default(cuid())
+  name             String
+  description      String?
+  surveyArea       String?
+  coordinateSystem String          @default("JGD2000")
+  units            String          @default("m")
+  boundingBox      String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  drawings         Drawing[]
+  landParcels      LandParcel[]
+  layers           Layer[]
+  users            ProjectUser[]
+  surveyPoints     SurveyPoint[]
+  options          ProjectOption[]
 }
 
-// プロジェクト参加者
 model ProjectUser {
-  id        String @id @default(cuid())
+  id        String  @id @default(cuid())
   userId    String
   projectId String
-  role      String @default("viewer") // owner, editor, viewer
-  
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
+  role      String  @default("viewer")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, projectId])
 }
 
-// レイヤー管理
 model Layer {
-  id          String   @id @default(cuid())
-  name        String
-  color       String   @default("#000000")
-  lineType    String   @default("CONTINUOUS")
-  lineWidth   Float    @default(1.0)
-  visible     Boolean  @default(true)
-  locked      Boolean  @default(false)
-  projectId   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  elements DrawingElement[]
-  
+  id        String           @id @default(cuid())
+  name      String
+  color     String           @default("#000000")
+  lineType  String           @default("CONTINUOUS")
+  lineWidth Float            @default(1.0)
+  visible   Boolean          @default(true)
+  locked    Boolean          @default(false)
+  projectId String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  elements  DrawingElement[]
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   @@unique([projectId, name])
 }
 
-// 図面データ
 model Drawing {
-  id            String   @id @default(cuid())
-  name          String
-  version       Int      @default(1)
-  sxfData       String?  // SXFファイル内容（JSON化）
-  metadata      String?  // メタデータ（JSON）
-  projectId     String
-  authorId      String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  author  User    @relation(fields: [authorId], references: [id])
-  
-  elements DrawingElement[]
+  id        String           @id @default(cuid())
+  name      String
+  version   Int              @default(1)
+  sxfData   String?
+  metadata  String?
+  projectId String
+  authorId  String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  author    User             @relation(fields: [authorId], references: [id])
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  elements  DrawingElement[]
 }
 
-// 描画要素（汎用）
 model DrawingElement {
-  id            String   @id @default(cuid())
-  type          String   // LINE, POINT, TEXT, POLYGON, CIRCLE, ARC, RECTANGLE, DIMENSION, BUILDING_OUTLINE, BEZIER
-  geometry      String   // PostGIS Geometry（WKT形式またはJSON）
-  properties    String?  // 属性データ（JSON）
-  style         String?  // スタイル情報（JSON）
-  pointType     String?  // 点要素の種別：survey(測量点), benchmark(水準点)
-  pointNumber   String?  // 点番号
-  elevation     Float?   // 標高
-  accuracy      String?  // 精度等級
-  layerId       String?
-  drawingId     String?
-  visible       Boolean  @default(true)
-  locked        Boolean  @default(false)
-  createdBy     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  layer     Layer?   @relation(fields: [layerId], references: [id], onDelete: SetNull)
-  drawing   Drawing? @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  creator   User?    @relation(fields: [createdBy], references: [id])
-  
+  id         String   @id @default(cuid())
+  type       String
+  geometry   String
+  properties String?
+  style      String?
+  layerId    String?
+  drawingId  String?
+  visible    Boolean  @default(true)
+  locked     Boolean  @default(false)
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  creator    User?    @relation(fields: [createdBy], references: [id])
+  drawing    Drawing? @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  layer      Layer?   @relation(fields: [layerId], references: [id])
+
   @@index([type])
-  @@index([pointType])
   @@index([layerId])
   @@index([drawingId])
 }
 
-// 測量点（地籍調査特有）
 model SurveyPoint {
-  id              String   @id @default(cuid())
-  pointNumber     String   // 点番号
-  pointType       String   // 基準点, 補助点, 境界点, 標定点など
-  coordinates     String   // WKT形式の座標
-  elevation       Float?   // 標高
-  accuracy        String?  // 精度等級
-  measureMethod   String?  // 測量方法
-  measureDate     DateTime?
-  surveyorName    String?
-  remarks         String?
-  projectId       String
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  creator   User?   @relation(fields: [createdBy], references: [id])
-  
+  id                   String    @id @default(cuid())
+  pointNumber          String
+  pointType            String
+  coordinates          String
+  elevation            Float?
+  accuracy             String?
+  measureMethod        String?
+  measureDate          DateTime?
+  surveyorName         String?
+  remarks              String?
+  stakeType            String?   // 杭種 (木杭・金属鋲・金属標・石標・プラスチック杭・コンクリート杭・マーキング・刻印)
+  installationCategory String?   // 設置区分 (既設・新設・復元・入替)
+  projectId            String
+  createdBy            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  creator              User?     @relation(fields: [createdBy], references: [id])
+  project              Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   @@unique([projectId, pointNumber])
 }
 
-
-// 土地区画（筆等）
 model LandParcel {
   id              String   @id @default(cuid())
   parcelNumber    String   // 地番
@@ -166,87 +137,55 @@ model LandParcel {
   geometry        String?  // WKT形式のPolygon
   coordinatePoints String? // 構成座標点のIDリスト（JSON配列）
   registrationDate DateTime?
-  remarks         String?
-  projectId       String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  
+  remarks          String?
+  projectId        String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   @@unique([projectId, parcelNumber])
 }
 
-// リアルタイム共同編集用のセッション管理
 model EditSession {
   id        String   @id @default(cuid())
   userId    String
   projectId String
   socketId  String   @unique
-  cursor    String?  // カーソル位置（JSON）
-  selection String?  // 選択要素（JSON）
+  cursor    String?
+  selection String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([userId])
   @@index([projectId])
 }
 
-// 変更履歴（リアルタイム同期用）
 model ChangeHistory {
-  id          String   @id @default(cuid())
-  type        String   // CREATE, UPDATE, DELETE
-  objectType  String   // DrawingElement, SurveyPoint, BoundaryLine
-  objectId    String
-  oldData     String?  // 変更前データ（JSON）
-  newData     String?  // 変更後データ（JSON）
-  userId      String
-  projectId   String
-  timestamp   DateTime @default(now())
-  
+  id         String   @id @default(cuid())
+  type       String
+  objectType String
+  objectId   String
+  oldData    String?
+  newData    String?
+  userId     String
+  projectId  String
+  timestamp  DateTime @default(now())
+
   @@index([projectId, timestamp])
   @@index([objectType, objectId])
 }
 
-// タスク管理
-model Task {
-  id             String   @id @default(cuid())
-  title          String
-  description    String?
-  status         String   @default("todo") // todo, in_progress, review, completed
-  priority       String   @default("medium") // low, medium, high, urgent
-  labels         String?  // ラベル（JSON配列）
-  estimatedHours Int?     // 予想工数（時間）
-  actualHours    Int?     // 実績工数（時間）
-  dueDate        DateTime?
-  projectId      String
-  assigneeId     String?
-  createdBy      String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  
-  project       Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assignee      User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  createdByUser User    @relation("TaskCreator", fields: [createdBy], references: [id])
-  comments      TaskComment[]
-  
-  @@index([projectId])
-  @@index([assigneeId])
-  @@index([status])
-  @@index([priority])
-}
-
-// タスクコメント
-model TaskComment {
+model ProjectOption {
   id        String   @id @default(cuid())
-  content   String
-  taskId    String
-  authorId  String
+  projectId String
+  category  String   // "stake_type" or "installation_category"
+  value     String
+  label     String
+  isDefault Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  author User @relation(fields: [authorId], references: [id])
-  
-  @@index([taskId])
-  @@index([authorId])
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, category, value])
 }
+

@@ -43,10 +43,9 @@ import type { Project } from '../../types/project';
 
 interface ProjectManagerProps {
   onProjectSelect: (project: Project) => void;
-  onSXFTest?: () => void;
 }
 
-export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect, onSXFTest }) => {
+export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -384,23 +383,6 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ onProjectSelect,
     <Box style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* アプリヘッダー */}
       <AppHeader onUserMenuClick={handleUserMenuClick} />
-      
-      {/* 開発テスト用ボタン */}
-      {onSXFTest && (
-        <Paper p="xs" style={{ borderRadius: 0, borderBottom: '1px solid #dee2e6' }}>
-          <Group justify="center">
-            <Button 
-              size="xs" 
-              variant="outline" 
-              color="orange"
-              leftSection={<IconFileText size="0.8rem" />}
-              onClick={onSXFTest}
-            >
-              SXF/SFC大容量ファイル読み込みテスト
-            </Button>
-          </Group>
-        </Paper>
-      )}
       
       {/* メインコンテンツ */}
       <Box style={{ display: 'flex', flex: 1 }}>

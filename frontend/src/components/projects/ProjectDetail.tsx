@@ -20,7 +20,8 @@ import {
   TextInput,
   Textarea,
   NumberInput,
-  Progress
+  Progress,
+  Tooltip
 } from '@mantine/core';
 import {
   IconArrowLeft,
@@ -44,7 +45,8 @@ import {
   IconClock,
   IconCalendar,
   IconAlertCircle,
-  IconCheck
+  IconCheck,
+  IconHome
 } from '@tabler/icons-react';
 import type { Project, CADData, CoordinateData } from '../../types/project';
 import { CoordinateLotViewer } from '../viewer/CoordinateLotViewer';
@@ -55,8 +57,6 @@ import {
   type LotData as MockLotData
 } from '../../utils/mockDataGenerator';
 import { ProjectEditForm } from './ProjectEditForm';
-import { SideMenu } from '../common/SideMenu';
-import { CoordinateEditor } from '../coordinates/CoordinateEditor';
 
 interface ProjectDetailProps {
   project: Project;
@@ -84,7 +84,13 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [editingMember, setEditingMember] = useState<any>(null);
   const [members, setMembers] = useState(project.members);
   
-  const [activeView, setActiveView] = useState<'overview' | 'members' | 'tasks' | 'coordinates' | 'lots' | 'settings'>('overview');
+  // インライン編集状態管理
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState<string>('');
+  
+  // アクティブビュー状態
+  const [activeView, setActiveView] = useState<'overview' | 'members' | 'tasks' | 'settings'>('overview');
   
   // 座標・地番データ（CoordinateEditorと同じデータを使用）
   const [coordinateData, setCoordinateData] = useState(() => {
@@ -179,6 +185,38 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
 
   const handleTaskDelete = (taskId: string) => {
     setTasks(prev => prev.filter(task => task.id !== taskId));
+  };
+
+  // インライン編集関数
+  const startInlineEdit = (taskId: string, field: string, currentValue: string) => {
+    setEditingTaskId(taskId);
+    setEditingField(field);
+    setEditingValue(currentValue);
+  };
+
+  const saveInlineEdit = () => {
+    if (editingTaskId && editingField) {
+      setTasks(prev => prev.map(task => 
+        task.id === editingTaskId 
+          ? { ...task, [editingField]: editingValue }
+          : task
+      ));
+    }
+    cancelInlineEdit();
+  };
+
+  const cancelInlineEdit = () => {
+    setEditingTaskId(null);
+    setEditingField(null);
+    setEditingValue('');
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      saveInlineEdit();
+    } else if (e.key === 'Escape') {
+      cancelInlineEdit();
+    }
   };
 
   // メンバー管理関数
@@ -388,10 +426,6 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const allCADData = [...project.cadData, ...sampleCADData];
   const allCoordinateData = [...project.coordinateData, ...sampleCoordinateData];
 
-  const handleMenuItemClick = (item: 'members' | 'tasks' | 'coordinates' | 'lots' | 'settings') => {
-    setActiveView(item);
-  };
-
   // 座標・地番編集モードを開く
   const handleCoordinateMode = () => {
     onEditMode('coordinate');
@@ -455,18 +489,136 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       )}
 
       <div style={{ display: 'flex', position: 'relative' }}>
-        <div style={{ flex: 1, marginLeft: '60px', marginRight: '33.333vw' }}>
+        {/* 永続的な左サイドバー */}
+        <Paper
+          shadow="sm"
+          style={{
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: '60px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            padding: '10px 0',
+            gap: '8px',
+            zIndex: 100,
+            backgroundColor: '#f8f9fa',
+            borderRight: '1px solid #dee2e6'
+          }}
+        >
+          {/* 戻るボタン */}
+          <Tooltip label="戻る" position="right" withArrow>
+            <ActionIcon 
+              variant="light" 
+              size="lg"
+              onClick={onBack}
+              style={{ margin: '10px 0' }}
+            >
+              <IconArrowLeft size={20} />
+            </ActionIcon>
+          </Tooltip>
+
+          {/* ホームボタン */}
+          <Tooltip label="プロジェクトトップ" position="right" withArrow>
+            <ActionIcon 
+              variant="light" 
+              size="lg"
+              onClick={() => setActiveView('overview')}
+              style={{ margin: '5px 0' }}
+            >
+              <IconHome size={20} />
+            </ActionIcon>
+          </Tooltip>
+
+          {/* セパレーター */}
+          <div style={{ width: '30px', height: '1px', backgroundColor: '#dee2e6', margin: '5px 0' }} />
+
+          {/* 概要 */}
+          <Tooltip label="概要" position="right" withArrow>
+            <ActionIcon
+              variant={activeView === 'overview' ? 'filled' : 'light'}
+              size="lg"
+              onClick={() => setActiveView('overview')}
+            >
+              <IconSettings size={20} />
+            </ActionIcon>
+          </Tooltip>
+
+          {/* メンバー管理 */}
+          <Tooltip label="メンバー管理" position="right" withArrow>
+            <ActionIcon
+              variant={activeView === 'members' ? 'filled' : 'light'}
+              size="lg"
+              onClick={() => setActiveView('members')}
+            >
+              <IconUsers size={20} />
+            </ActionIcon>
+          </Tooltip>
+
+          {/* タスク管理 */}
+          <Tooltip label="タスク管理" position="right" withArrow>
+            <ActionIcon
+              variant={activeView === 'tasks' ? 'filled' : 'light'}
+              size="lg"
+              onClick={() => setActiveView('tasks')}
+            >
+              <IconChecklist size={20} />
+            </ActionIcon>
+          </Tooltip>
+
+          {/* 座標編集 */}
+          <Tooltip label="座標編集" position="right" withArrow>
+            <ActionIcon
+              variant="light"
+              size="lg"
+              onClick={handleCoordinateMode}
+            >
+              <IconMapPins size={20} />
+            </ActionIcon>
+          </Tooltip>
+
+          {/* 地番編集 */}
+          <Tooltip label="地番編集" position="right" withArrow>
+            <ActionIcon
+              variant="light"
+              size="lg"
+              onClick={handleLotMode}
+            >
+              <IconMap2 size={20} />
+            </ActionIcon>
+          </Tooltip>
+
+          {/* セパレーター */}
+          <div style={{ width: '30px', height: '1px', backgroundColor: '#dee2e6', margin: '5px 0' }} />
+
+          {/* 設定 */}
+          <Tooltip label="設定" position="right" withArrow>
+            <ActionIcon
+              variant={activeView === 'settings' ? 'filled' : 'light'}
+              size="lg"
+              onClick={() => setActiveView('settings')}
+            >
+              <IconSettings2 size={20} />
+            </ActionIcon>
+          </Tooltip>
+        </Paper>
+
+        <div style={{ flex: 1, marginRight: '33.333vw', marginLeft: '60px' }}>
           <Container 
             size="xl" 
-            py={20}
+            py={20} 
+            style={{ 
+              paddingLeft: '20px'
+            }}
           >
           {/* ヘッダー */}
+          {activeView === 'overview' && (
+            <>
       <Paper shadow="sm" p={20} mb={30} withBorder>
         <Group justify="space-between">
           <Group>
-            <ActionIcon variant="light" onClick={onBack}>
-              <IconArrowLeft size={18} />
-            </ActionIcon>
             <div>
               <Group gap="sm" align="center">
                 <Title order={2}>{project.name}</Title>
@@ -556,7 +708,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                 variant="light" 
                 size="sm" 
                 leftSection={<IconUsers size={16} />} 
-                onClick={() => handleMenuItemClick('members')}
+                onClick={() => setActiveView('members')}
               >
                 メンバー管理
               </Button>
@@ -573,7 +725,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
               <Button 
                 size="sm" 
                 leftSection={<IconChecklist size={16} />} 
-                onClick={() => handleMenuItemClick('tasks')}
+                onClick={() => setActiveView('tasks')}
               >
                 タスク管理
               </Button>
@@ -607,14 +759,14 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         </Stack>
       </Paper>
 
-      {/* 座標・地番メニュー概要 - サイドメニューで詳細管理 */}
+      {/* 座標・地番編集メニュー */}
       <Paper shadow="sm" p={20} mb={30} withBorder>
         <Stack gap="md">
           <Group justify="space-between" align="center">
             <div>
-              <Title order={3}>座標・地番メニュー</Title>
+              <Title order={3}>座標・地番編集</Title>
               <Text size="sm" c="dimmed">
-                左メニューから座標管理・地番管理にアクセスできます
+                座標データと地番データの編集を行います
               </Text>
             </div>
             <Group>
@@ -622,17 +774,17 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                 variant="light" 
                 color="orange"
                 leftSection={<IconMapPins size={16} />}
-                onClick={() => handleMenuItemClick('coordinates')}
+                onClick={handleCoordinateMode}
               >
-                座標管理
+                座標編集
               </Button>
               <Button 
                 variant="light" 
                 color="teal"
                 leftSection={<IconMap2 size={16} />}
-                onClick={() => handleMenuItemClick('lots')}
+                onClick={handleLotMode}
               >
-                地番管理
+                地番編集
               </Button>
             </Group>
           </Group>
@@ -853,7 +1005,279 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
           )}
         </Stack>
       </Paper>
+            </>
+          )}
 
+          {/* メンバー・タスク統合管理ビュー */}
+          {(activeView === 'members' || activeView === 'tasks') && (
+            <Stack gap="lg">
+              {/* メンバー管理セクション */}
+              <Paper shadow="sm" p={20} withBorder>
+                <Stack gap="md">
+                  <Group justify="space-between" align="center">
+                    <Title order={3}>メンバー管理</Title>
+                    <Button leftSection={<IconPlus size={16} />} onClick={handleMemberAdd}>
+                      メンバー追加
+                    </Button>
+                  </Group>
+                  
+                  <MemberManagement
+                    members={members}
+                    onMemberSave={handleMemberSave}
+                    onMemberDelete={handleMemberDelete}
+                    onMemberEdit={handleMemberEdit}
+                    onMemberAdd={handleMemberAdd}
+                    onClose={() => setActiveView('overview')}
+                  />
+                </Stack>
+              </Paper>
+
+              {/* タスク管理セクション */}
+              <Paper shadow="sm" p={20} withBorder>
+                <Stack gap="md">
+                  <Group justify="space-between" align="center">
+                    <div>
+                      <Title order={3}>タスク管理</Title>
+                      <Text size="sm" c="dimmed">
+                        各項目をクリックして直接編集できます
+                      </Text>
+                    </div>
+                    <Button leftSection={<IconPlus size={16} />} onClick={handleTaskAdd}>
+                      タスク追加
+                    </Button>
+                  </Group>
+
+                  <Table striped highlightOnHover withTableBorder>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>タスク名</Table.Th>
+                        <Table.Th>担当者</Table.Th>
+                        <Table.Th>ステータス</Table.Th>
+                        <Table.Th>優先度</Table.Th>
+                        <Table.Th>期限</Table.Th>
+                        <Table.Th>進捗</Table.Th>
+                        <Table.Th>操作</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {tasks.map((task) => (
+                        <Table.Tr key={task.id}>
+                          <Table.Td>
+                            <div>
+                              <Group gap="xs">
+                                {getCategoryIcon(task.category)}
+                                {editingTaskId === task.id && editingField === 'title' ? (
+                                  <TextInput
+                                    value={editingValue}
+                                    onChange={(e) => setEditingValue(e.target.value)}
+                                    onKeyDown={handleKeyPress}
+                                    onBlur={saveInlineEdit}
+                                    size="xs"
+                                    autoFocus
+                                    style={{ minWidth: '200px' }}
+                                  />
+                                ) : (
+                                  <Text 
+                                    fw={600} 
+                                    size="sm" 
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={() => startInlineEdit(task.id, 'title', task.title)}
+                                  >
+                                    {task.title}
+                                  </Text>
+                                )}
+                              </Group>
+                              {editingTaskId === task.id && editingField === 'description' ? (
+                                <Textarea
+                                  value={editingValue}
+                                  onChange={(e) => setEditingValue(e.target.value)}
+                                  onKeyDown={handleKeyPress}
+                                  onBlur={saveInlineEdit}
+                                  size="xs"
+                                  autoFocus
+                                  mt={4}
+                                  autosize
+                                  minRows={1}
+                                  maxRows={3}
+                                />
+                              ) : (
+                                <Text 
+                                  size="xs" 
+                                  c="dimmed" 
+                                  mt={4}
+                                  style={{ cursor: 'pointer' }}
+                                  onClick={() => startInlineEdit(task.id, 'description', task.description)}
+                                >
+                                  {task.description}
+                                </Text>
+                              )}
+                            </div>
+                          </Table.Td>
+                          <Table.Td>
+                            {editingTaskId === task.id && editingField === 'assignee' ? (
+                              <Select
+                                value={editingValue}
+                                onChange={(value) => {
+                                  setEditingValue(value || '');
+                                  setTimeout(saveInlineEdit, 100);
+                                }}
+                                data={members.map(m => m.name)}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Text 
+                                size="sm"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startInlineEdit(task.id, 'assignee', task.assignee)}
+                              >
+                                {task.assignee}
+                              </Text>
+                            )}
+                          </Table.Td>
+                          <Table.Td>
+                            {editingTaskId === task.id && editingField === 'status' ? (
+                              <Select
+                                value={editingValue}
+                                onChange={(value) => {
+                                  setEditingValue(value || '');
+                                  setTimeout(saveInlineEdit, 100);
+                                }}
+                                data={[
+                                  { value: 'pending', label: '未着手' },
+                                  { value: 'in_progress', label: '進行中' },
+                                  { value: 'completed', label: '完了' }
+                                ]}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Badge 
+                                color={getTaskStatusColor(task.status)} 
+                                variant="light"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startInlineEdit(task.id, 'status', task.status)}
+                              >
+                                {getTaskStatusLabel(task.status)}
+                              </Badge>
+                            )}
+                          </Table.Td>
+                          <Table.Td>
+                            {editingTaskId === task.id && editingField === 'priority' ? (
+                              <Select
+                                value={editingValue}
+                                onChange={(value) => {
+                                  setEditingValue(value || '');
+                                  setTimeout(saveInlineEdit, 100);
+                                }}
+                                data={[
+                                  { value: 'high', label: '高' },
+                                  { value: 'medium', label: '中' },
+                                  { value: 'low', label: '低' }
+                                ]}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Badge 
+                                color={getPriorityColor(task.priority)} 
+                                variant="outline" 
+                                size="sm"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startInlineEdit(task.id, 'priority', task.priority)}
+                              >
+                                {task.priority === 'high' ? '高' : task.priority === 'medium' ? '中' : '低'}
+                              </Badge>
+                            )}
+                          </Table.Td>
+                          <Table.Td>
+                            {editingTaskId === task.id && editingField === 'dueDate' ? (
+                              <TextInput
+                                type="date"
+                                value={editingValue}
+                                onChange={(e) => setEditingValue(e.target.value)}
+                                onKeyDown={handleKeyPress}
+                                onBlur={saveInlineEdit}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Text 
+                                size="sm"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startInlineEdit(task.id, 'dueDate', task.dueDate)}
+                              >
+                                {task.dueDate}
+                              </Text>
+                            )}
+                          </Table.Td>
+                          <Table.Td>
+                            <div style={{ width: '80px' }}>
+                              {editingTaskId === task.id && editingField === 'progress' ? (
+                                <NumberInput
+                                  value={parseInt(editingValue)}
+                                  onChange={(value) => setEditingValue(value?.toString() || '0')}
+                                  onKeyDown={handleKeyPress}
+                                  onBlur={saveInlineEdit}
+                                  min={0}
+                                  max={100}
+                                  size="xs"
+                                  autoFocus
+                                  suffix="%"
+                                />
+                              ) : (
+                                <div onClick={() => startInlineEdit(task.id, 'progress', task.progress.toString())}>
+                                  <Progress 
+                                    value={task.progress} 
+                                    size="sm" 
+                                    style={{ cursor: 'pointer' }} 
+                                  />
+                                  <Text size="xs" ta="center" style={{ cursor: 'pointer' }}>
+                                    {task.progress}%
+                                  </Text>
+                                </div>
+                              )}
+                            </div>
+                          </Table.Td>
+                          <Table.Td>
+                            <Group gap="xs">
+                              <ActionIcon
+                                variant="light"
+                                color="red"
+                                onClick={() => handleTaskDelete(task.id)}
+                              >
+                                <IconTrash size={16} />
+                              </ActionIcon>
+                            </Group>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Stack>
+              </Paper>
+            </Stack>
+          )}
+
+
+          {/* 設定ビュー */}
+          {activeView === 'settings' && (
+            <Paper shadow="sm" p={20} withBorder>
+              <Stack gap="md">
+                <Title order={3}>プロジェクト設定</Title>
+                <Text c="dimmed">プロジェクトの設定を変更できます。</Text>
+                <Button
+                  leftSection={<IconEdit size={16} />}
+                  onClick={() => setShowEditModal(true)}
+                >
+                  プロジェクト編集
+                </Button>
+              </Stack>
+            </Paper>
+          )}
+
+        </Container>
+        </div>
 
       {/* アップロードモーダル */}
       <Modal
@@ -900,8 +1324,9 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
             zIndex: 3000,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            paddingTop: '50px'
           }}
           onClick={() => setShowTaskModal(false)}
         >
@@ -956,8 +1381,9 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
             zIndex: 3000,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            paddingTop: '50px'
           }}
           onClick={() => setShowMemberModal(false)}
         >
@@ -998,21 +1424,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       )}
 
         </Container>
-      </div>
-      
-      {/* 固定サイドメニュー */}
-      <SideMenu
-        opened={true}
-        onClose={() => {}}
-        onMenuItemClick={handleMenuItemClick}
-        onCoordinateEdit={handleCoordinateMode}
-        onLotEdit={handleLotMode}
-        taskCount={tasks.length}
-        memberCount={members.length}
-        coordinateCount={coordinateData.length}
-        lotCount={lotData.length}
-      />
-      
+        </div>
       {/* 右側のビューワー */}
       <CoordinateLotViewer 
         project={project}

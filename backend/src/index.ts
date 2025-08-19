@@ -15,6 +15,7 @@ import memberRoutes from './routes/members';
 import elementRoutes from './routes/elements';
 import surveyPointRoutes from './routes/surveyPoints';
 import landParcelRoutes from './routes/landParcels';
+import projectOptionRoutes from './routes/project-options';
 // import taskRoutes from './routes/tasks';
 
 // ミドルウェアのインポート
@@ -136,6 +137,7 @@ app.use('/api/land-parcels', authenticateToken, landParcelRoutes);
 // テスト用: 認証なしでアクセス可能なエンドポイント
 app.use('/api/elements-test', elementRoutes);
 app.use('/api', authenticateToken, memberRoutes);
+app.use('/api/project-options', authenticateToken, projectOptionRoutes);
 // app.use('/api', authenticateToken, taskRoutes);
 
 // エラーハンドリングミドルウェア

@@ -11,6 +11,8 @@ export interface CoordinatePoint {
   surveyDate: string;
   assignee: string;
   status: string;
+  stakeType?: string;
+  installationCategory?: string;
 }
 
 export interface LotData {
@@ -37,12 +39,34 @@ export interface LandownerData {
   landCount: number;
 }
 
+// 杭種の選択肢
+export const getDefaultStakeTypes = () => [
+  '木杭',
+  '金属鋲', 
+  '金属標',
+  '石標',
+  'プラスチック杭',
+  'コンクリート杭',
+  'マーキング',
+  '刻印'
+];
+
+// 設置区分の選択肢
+export const getDefaultInstallationCategories = () => [
+  '既設',
+  '新設',
+  '復元',
+  '入替'
+];
+
 // 整然とした座標データ生成（規則的配置）
 export const generateSimpleCoordinateData = (): CoordinatePoint[] => {
   const data: CoordinatePoint[] = [];
   const typeLabels = { benchmark: '基準点', control_point: '制御点', boundary_point: '境界点' };
   const assignees = ['田中太郎', '佐藤花子', '山田一郎', '鈴木美子', '高橋健太', '未割当'];
   const statuses = ['未測量', '測量中', '測量済み', '検査済み', '要再測量'];
+  const stakeTypes = getDefaultStakeTypes();
+  const installationCategories = getDefaultInstallationCategories();
   
   let pointId = 1;
 
@@ -65,7 +89,9 @@ export const generateSimpleCoordinateData = (): CoordinatePoint[] => {
       description: `${typeLabels.benchmark}${index + 1}号`,
       surveyDate: '2024-01-15',
       assignee: assignees[0],
-      status: '検査済み'
+      status: '検査済み',
+      stakeType: stakeTypes[Math.floor(Math.random() * stakeTypes.length)],
+      installationCategory: installationCategories[Math.floor(Math.random() * installationCategories.length)]
     });
     pointId++;
   });
@@ -86,7 +112,9 @@ export const generateSimpleCoordinateData = (): CoordinatePoint[] => {
         description: `${typeLabels.control_point}${pointId - 4}号`,
         surveyDate: '2024-02-01',
         assignee: assignees[1],
-        status: '測量済み'
+        status: '測量済み',
+        stakeType: stakeTypes[Math.floor(Math.random() * stakeTypes.length)],
+        installationCategory: installationCategories[Math.floor(Math.random() * installationCategories.length)]
       });
       pointId++;
     }
@@ -149,7 +177,9 @@ export const generateSimpleCoordinateData = (): CoordinatePoint[] => {
       description: `${typeLabels.boundary_point}${index + 1}号`,
       surveyDate: '2024-03-01',
       assignee: assignees[Math.floor(index / 6) % assignees.length],
-      status: index < 12 ? '測量済み' : '測量中'
+      status: index < 12 ? '測量済み' : '測量中',
+      stakeType: stakeTypes[Math.floor(Math.random() * stakeTypes.length)],
+      installationCategory: installationCategories[Math.floor(Math.random() * installationCategories.length)]
     });
     pointId++;
   });

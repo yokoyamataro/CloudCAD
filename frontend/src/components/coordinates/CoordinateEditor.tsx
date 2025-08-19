@@ -30,7 +30,8 @@ import {
   IconUsers,
   IconTrash,
   IconDownload,
-  IconUpload
+  IconUpload,
+  IconX
 } from '@tabler/icons-react';
 import type { Project } from '../../types/project';
 import { CoordinateLotViewer } from '../viewer/CoordinateLotViewer';
@@ -38,6 +39,9 @@ import {
   generateLotData, 
   generateLandownerData,
   formatLotNumber,
+  getDefaultStakeTypes,
+  getDefaultInstallationCategories,
+  type CoordinatePoint as MockCoordinatePoint,
   type LotData as MockLotData,
   type LandownerData as MockLandownerData
 } from '../../utils/mockDataGenerator';
@@ -211,6 +215,11 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   const [showSIMModal, setShowSIMModal] = useState(false);
   const [simAction, setSIMAction] = useState<'read' | 'write'>('read');
   
+  // インライン編集状態管理
+  const [editingCoordId, setEditingCoordId] = useState<string | null>(null);
+  const [editingCoordField, setEditingCoordField] = useState<string | null>(null);
+  const [editingCoordValue, setEditingCoordValue] = useState<string>('');
+  
   // フィルター状態管理（複数選択対応）
   const [filters, setFilters] = useState({
     search: '',
@@ -328,6 +337,43 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     } catch (error) {
       console.error('座標点の削除に失敗しました:', error);
       setError(error instanceof Error ? error.message : '座標点の削除に失敗しました');
+    }
+  };
+
+  // 座標インライン編集関数
+  const startCoordInlineEdit = (coordId: string, field: string, currentValue: string) => {
+    setEditingCoordId(coordId);
+    setEditingCoordField(field);
+    setEditingCoordValue(currentValue);
+  };
+
+  const saveCoordInlineEdit = () => {
+    if (editingCoordId && editingCoordField) {
+      setCoordinateData(prev => prev.map(coord => 
+        coord.id === editingCoordId 
+          ? { 
+              ...coord, 
+              [editingCoordField]: editingCoordField === 'x' || editingCoordField === 'y' || editingCoordField === 'z'
+                ? parseFloat(editingCoordValue) || 0 
+                : editingCoordValue 
+            }
+          : coord
+      ));
+    }
+    cancelCoordInlineEdit();
+  };
+
+  const cancelCoordInlineEdit = () => {
+    setEditingCoordId(null);
+    setEditingCoordField(null);
+    setEditingCoordValue('');
+  };
+
+  const handleCoordKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      saveCoordInlineEdit();
+    } else if (e.key === 'Escape') {
+      cancelCoordInlineEdit();
     }
   };
 
@@ -482,7 +528,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
               <Paper shadow="sm" p={20} withBorder>
                 <Stack gap="md">
                   <div>
-                    <Text size="sm" c="dimmed">測量基準点・境界点の座標データを管理します</Text>
+                    <Text size="sm" c="dimmed">測量基準点・境界点の座標データを管理します - 各項目をクリックして直接編集できます</Text>
                     {activeFilterCount > 0 && (
                       <Text size="sm" c="orange" fw={600}>
                         {activeFilterCount}個のフィルター適用中 ({filteredCoordinateData.length}/{coordinateData.length}件表示)
@@ -576,6 +622,8 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                           <Table.Th>X座標 (m)</Table.Th>
                           <Table.Th>Y座標 (m)</Table.Th>
                           <Table.Th>標高 (m)</Table.Th>
+                          <Table.Th>杭種</Table.Th>
+                          <Table.Th>設置区分</Table.Th>
                           <Table.Th>担当者</Table.Th>
                           <Table.Th>状態</Table.Th>
                           <Table.Th>測量日</Table.Th>
@@ -647,16 +695,25 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                           </Table.Td>
                           <Table.Td>
                             <EditableCell
+                              value={(coord as any).stakeType || '-'}
+                              type="select"
+                              options={getDefaultStakeTypes()}
+                              onSave={(value) => updateCoordinateField(coord.id, 'stakeType', value)}
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <EditableCell
+                              value={(coord as any).installationCategory || '-'}
+                              type="select" 
+                              options={getDefaultInstallationCategories()}
+                              onSave={(value) => updateCoordinateField(coord.id, 'installationCategory', value)}
+                            />
+                          </Table.Td>
+                          <Table.Td>
+                            <EditableCell
                               value={coord.assignee}
                               type="select"
-                              options={[
-                                { value: '未割当', label: '未割当' },
-                                { value: '田中技師', label: '田中技師' },
-                                { value: '佐藤技師', label: '佐藤技師' },
-                                { value: '鈴木技師', label: '鈴木技師' },
-                                { value: '高橋技師', label: '高橋技師' },
-                                { value: '外部委託', label: '外部委託' }
-                              ]}
+                              options={getUniqueAssignees().map(assignee => ({ value: assignee, label: assignee }))}
                               onSave={(value) => updateCoordinateField(coord.id, 'assignee', value)}
                             />
                           </Table.Td>
@@ -664,13 +721,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                             <EditableCell
                               value={coord.status}
                               type="select"
-                              options={[
-                                { value: '未測量', label: '未測量' },
-                                { value: '測量中', label: '測量中' },
-                                { value: '測量済み', label: '測量済み' },
-                                { value: '検査済み', label: '検査済み' },
-                                { value: '要再測量', label: '要再測量' }
-                              ]}
+                              options={getUniqueStatuses().map(status => ({ value: status, label: status }))}
                               onSave={(value) => updateCoordinateField(coord.id, 'status', value)}
                             />
                           </Table.Td>
@@ -923,6 +974,85 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
           console.log('地番クリック:', lot.lotNumber);
         }}
       />
+
+      {/* SIM読込・書込モーダル */}
+      {showSIMModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 3000,
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            paddingTop: '50px'
+          }}
+          onClick={() => setShowSIMModal(false)}
+        >
+          <Paper
+            shadow="xl"
+            p="xl"
+            style={{
+              width: '500px',
+              maxWidth: '90vw',
+              maxHeight: '80vh',
+              overflow: 'auto'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Group justify="space-between" mb="md">
+              <Title order={3}>
+                {simAction === 'read' ? 'SIM読込' : 'SIM書込'}
+              </Title>
+              <ActionIcon
+                variant="subtle"
+                onClick={() => setShowSIMModal(false)}
+              >
+                <IconX size={18} />
+              </ActionIcon>
+            </Group>
+            
+            <Stack gap="md">
+              <Text size="sm" c="dimmed">
+                {simAction === 'read' 
+                  ? 'SIMファイルから座標データを読み込みます。ファイルを選択してください。'
+                  : '現在の座標データをSIMファイル形式で書き出します。'
+                }
+              </Text>
+              
+              {simAction === 'read' && (
+                <FileInput
+                  label="SIMファイル"
+                  placeholder="ファイルを選択..."
+                  accept=".sim,.txt"
+                  onChange={handleSIMProcess}
+                />
+              )}
+              
+              {simAction === 'write' && (
+                <Group justify="flex-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowSIMModal(false)}
+                  >
+                    キャンセル
+                  </Button>
+                  <Button
+                    onClick={() => handleSIMProcess(null)}
+                    leftSection={<IconDownload size={16} />}
+                  >
+                    SIMファイル書き出し
+                  </Button>
+                </Group>
+              )}
+            </Stack>
+          </Paper>
+        </div>
+      )}
     </div>
   );
 };
