@@ -17,7 +17,8 @@ import {
   MultiSelect,
   Checkbox,
   Modal,
-  FileInput
+  FileInput,
+  Progress
 } from '@mantine/core';
 import {
   IconArrowLeft,
@@ -48,6 +49,7 @@ import {
   type LandownerData as MockLandownerData
 } from '../../utils/mockDataGenerator';
 import { surveyPointService, type SurveyPoint } from '../../services/surveyPointService';
+import SurveyPointService from '../../services/surveyPointService';
 import { landParcelService, type LandParcel } from '../../services/landParcelService';
 
 interface CoordinateEditorProps {
@@ -70,8 +72,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // 座標データ管理（フォールバック用：モックデータ）
-  const [coordinateData, setCoordinateData] = useState(() => generateSimpleCoordinateData());
+  // 座標データ管理（削除：モックデータは使用しない）
   const [lotData, setLotData] = useState(() => generateLotData());
   const [landownerData, setLandownerData] = useState(() => generateLandownerData());
 
@@ -80,6 +81,11 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   const [selectedCoordinates, setSelectedCoordinates] = useState<Set<string>>(new Set());
   const [showSIMModal, setShowSIMModal] = useState(false);
   const [simAction, setSIMAction] = useState<'read' | 'write'>('read');
+  
+  // SIM読込進捗状態管理
+  const [simLoading, setSIMLoading] = useState(false);
+  const [simProgress, setSIMProgress] = useState(0);
+  const [simProgressMessage, setSIMProgressMessage] = useState('');
   
   // インライン編集状態管理
   const [editingCoordId, setEditingCoordId] = useState<string | null>(null);
@@ -107,8 +113,8 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
         
         // 座標点データと地番データを並行して取得
         const [surveyPointsResponse, landParcelsResponse] = await Promise.all([
-          surveyPointService.getSurveyPoints(project.id),
-          landParcelService.getLandParcels(project.id)
+          surveyPointService.getAllSurveyPointsByProject(project.id),
+          landParcelService.getLandParcelsByProject(project.id)
         ]);
         
         console.log('🔍 APIレスポンス詳細:', {
@@ -153,8 +159,8 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
       setError(null);
       
       const [surveyPointsResponse, landParcelsResponse] = await Promise.all([
-        surveyPointService.getSurveyPoints(project.id),
-        landParcelService.getLandParcels(project.id)
+        surveyPointService.getAllSurveyPointsByProject(project.id),
+        landParcelService.getLandParcelsByProject(project.id)
       ]);
       
       setSurveyPoints(surveyPointsResponse);
@@ -187,21 +193,31 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     }
   };
 
+  // 日本語ラベルから英語APIキーへの逆変換関数
+  const getTypeApiKey = (label: string) => {
+    switch (label) {
+      case '基準点': return 'benchmark';
+      case '制御点': return 'control_point';
+      case '境界点': return 'boundary_point';
+      default: return label.toLowerCase(); // フォールバック
+    }
+  };
+
   // SurveyPoint から MockCoordinatePoint への変換
   const convertSurveyPointToCoordinatePoint = (surveyPoint: SurveyPoint): MockCoordinatePoint => {
     console.log('🔧 座標変換中:', {
       pointNumber: surveyPoint.pointNumber,
-      originalCoordinates: surveyPoint.coordinates,
-      parseResult: surveyPointService.parseCoordinates(surveyPoint.coordinates)
+      x: surveyPoint.x,
+      y: surveyPoint.y,
+      elevation: surveyPoint.elevation
     });
     
-    const coords = surveyPointService.parseCoordinates(surveyPoint.coordinates);
     const result = {
       id: surveyPoint.id,
       pointName: surveyPoint.pointNumber,
       type: getTypeLabel(surveyPoint.pointType), // 既存データを日本語に正規化
-      x: coords.x,
-      y: coords.y,
+      x: surveyPoint.x,
+      y: surveyPoint.y,
       z: surveyPoint.elevation || 0,
       description: surveyPoint.remarks || '',
       surveyDate: surveyPoint.measureDate || new Date().toISOString().split('T')[0],
@@ -215,30 +231,24 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     return result;
   };
 
-  // 実際に使用するデータ（API優先、フォールバックでモック）
+  // 実際に使用するデータ（APIデータのみ）
   const actualCoordinateData = useMemo(() => {
     console.log('🔍 actualCoordinateData計算中:', {
       loading,
       surveyPointsLength: surveyPoints.length,
-      firstSurveyPoint: surveyPoints[0],
-      coordinateDataLength: coordinateData.length
+      firstSurveyPoint: surveyPoints[0]
     });
     
     if (loading) {
-      console.log('⏳ ローディング中のためモックデータを使用');
-      return coordinateData;
+      console.log('⏳ ローディング中のため空配列を返す');
+      return [];
     }
     
-    if (surveyPoints.length > 0) {
-      console.log('✅ APIデータを使用:', surveyPoints.length, '件');
-      const converted = surveyPoints.map(convertSurveyPointToCoordinatePoint);
-      console.log('🔧 変換後の最初のデータ:', converted[0]);
-      return converted;
-    } else {
-      console.log('⚠️ APIデータが空のためモックデータにフォールバック');
-      return coordinateData;
-    }
-  }, [loading, surveyPoints, coordinateData]);
+    console.log('✅ APIデータを使用:', surveyPoints.length, '件');
+    const converted = surveyPoints.map(convertSurveyPointToCoordinatePoint);
+    console.log('🔧 変換後の最初のデータ:', converted[0]);
+    return converted;
+  }, [loading, surveyPoints]);
 
   // バッジの色を取得する関数
   const getTypeBadgeColor = (type: string) => {
@@ -341,17 +351,17 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
       if (surveyPoints.length > 0) {
         // API 経由で削除
         const deletePromises = Array.from(selectedCoordinates).map(coordinateId =>
-          surveyPointService.deleteSurveyPoint(project.id!, coordinateId)
+          surveyPointService.deleteSurveyPoint(coordinateId)
         );
         
         await Promise.allSettled(deletePromises);
         
         // データを再読み込みして最新状態を取得
-        const updatedSurveyPoints = await surveyPointService.getSurveyPoints(project.id!);
+        const updatedSurveyPoints = await surveyPointService.getAllSurveyPointsByProject(project.id!);
         setSurveyPoints(updatedSurveyPoints);
       } else {
-        // フォールバック: モックデータから削除
-        setCoordinateData(prev => prev.filter(coord => !selectedCoordinates.has(coord.id)));
+        // APIデータがない場合は何もしない
+        console.log('APIデータがないため削除処理をスキップします');
       }
       
       setSelectedCoordinates(new Set());
@@ -373,15 +383,18 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
         const newSurveyPoint = {
           pointNumber: `新規点-${Date.now()}`,
           pointType: 'boundary_point',
-          coordinates: surveyPointService.formatCoordinates(0, 0),
+          x: 0,
+          y: 0,
           elevation: 0,
           measureDate: new Date().toISOString().split('T')[0],
           surveyorName: '未割当',
-          remarks: '新規追加座標点'
+          remarks: '新規追加座標点',
+          stakeType: '',
+          installationCategory: '',
+          projectId: project.id
         };
 
         const createdSurveyPoint = await surveyPointService.createSurveyPoint(
-          project.id,
           newSurveyPoint
         );
         
@@ -389,24 +402,8 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
         setSurveyPoints(prev => [...prev, createdSurveyPoint]);
         console.log('✅ 新規座標点を追加しました:', createdSurveyPoint.pointNumber);
       } else {
-        // フォールバック: モックデータに追加
-        const newCoordinate = {
-          id: `new_${Date.now()}`,
-          pointName: `新規点-${Date.now()}`,
-          type: '境界点',
-          x: 0,
-          y: 0,
-          z: 0,
-          description: '新規追加座標点',
-          surveyDate: new Date().toISOString().split('T')[0],
-          assignee: '未割当',
-          status: '未測量',
-          stakeType: undefined,
-          installationCategory: undefined
-        };
-        
-        setCoordinateData(prev => [...prev, newCoordinate]);
-        console.log('✅ 新規座標点をモックデータに追加しました');
+        // APIデータがない場合は何もしない
+        console.log('APIデータがないため座標点追加をスキップします');
       }
     } catch (error) {
       console.error('座標点追加エラー:', error);
@@ -440,17 +437,13 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
               updateData.pointNumber = editingCoordValue;
               break;
             case 'type':
-              updateData.pointType = editingCoordValue;
+              updateData.pointType = getTypeApiKey(editingCoordValue);
               break;
             case 'x':
+              updateData.x = parseFloat(editingCoordValue) || 0;
+              break;
             case 'y':
-              const coords = surveyPointService.parseCoordinates(surveyPoint.coordinates);
-              if (editingCoordField === 'x') {
-                coords.x = parseFloat(editingCoordValue) || 0;
-              } else {
-                coords.y = parseFloat(editingCoordValue) || 0;
-              }
-              updateData.coordinates = surveyPointService.formatCoordinates(coords.x, coords.y);
+              updateData.y = parseFloat(editingCoordValue) || 0;
               break;
             case 'z':
               updateData.elevation = parseFloat(editingCoordValue) || 0;
@@ -474,7 +467,6 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
 
           // API 呼び出し
           const updatedSurveyPoint = await surveyPointService.updateSurveyPoint(
-            project.id, 
             editingCoordId, 
             updateData
           );
@@ -487,18 +479,8 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
           console.log(`✅ 座標点 ${surveyPoint.pointNumber} を更新しました`);
         }
       } else {
-        // フォールバック: モックデータを更新
-        setCoordinateData(prev => prev.map(coord => 
-          coord.id === editingCoordId 
-            ? { 
-                ...coord, 
-                [editingCoordField]: editingCoordField === 'x' || editingCoordField === 'y' || editingCoordField === 'z'
-                  ? parseFloat(editingCoordValue) || 0 
-                  : editingCoordValue 
-              }
-            : coord
-        ));
-        console.log(`✅ モックデータを更新しました (${editingCoordField})`);
+        // APIデータがない場合は何もしない
+        console.log('APIデータがないため座標更新をスキップします');
       }
     } catch (error) {
       console.error('座標更新エラー:', error);
@@ -612,42 +594,92 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     setShowSIMModal(true);
   };
 
-  const handleSIMProcess = (file: File | null) => {
-    if (!file) return;
+  const handleSIMProcess = async (file: File | null) => {
+    if (!file && simAction !== 'write') return;
+    if (!project?.id) return;
 
     if (simAction === 'read') {
       // SIM読込処理
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
-          const content = e.target?.result as string;
-          const simData = parseSIMFile(content);
+          setSIMLoading(true);
+          setSIMProgress(0);
+          setSIMProgressMessage('SIMファイルを解析中...');
           
-          // 座標データに追加
-          const newCoordinates = simData.map((coord, index) => ({
-            id: `sim_${Date.now()}_${index}`,
-            pointName: coord.pointName || `SIM-${String(index + 1).padStart(3, '0')}`,
-            type: 'boundary_point' as const,
-            x: parseFloat(coord.x.toFixed(3)),
-            y: parseFloat(coord.y.toFixed(3)),
-            z: parseFloat(coord.z.toFixed(3)),
-            description: `SIM読込座標点${index + 1}`,
-            surveyDate: new Date().toISOString().split('T')[0],
-            assignee: '未割当',
-            status: '未測量'
-          }));
+          const content = e.target?.result as string;
+          console.log('🔍 SIM読込開始');
+          const simData = parseSIMFile(content);
+          console.log('🔧 解析結果:', simData);
+          
+          setSIMProgress(10);
+          
+          if (simData.length === 0) {
+            alert('SIMファイルから座標データが見つかりませんでした。ファイル形式を確認してください。');
+            return;
+          }
+          
+          setSIMProgressMessage(`${simData.length}件の座標データをデータベースに保存中...`);
+          
+          // API経由でSurveyPointを作成
+          const createdPoints: SurveyPoint[] = [];
+          const totalPoints = simData.length;
+          
+          for (let i = 0; i < simData.length; i++) {
+            const coord = simData[i];
+            const newSurveyPoint = {
+              pointNumber: coord.pointName || `SIM-${String(i + 1).padStart(3, '0')}`,
+              pointType: 'boundary_point',
+              x: parseFloat(coord.x.toFixed(3)),
+              y: parseFloat(coord.y.toFixed(3)),
+              elevation: parseFloat(coord.z.toFixed(3)),
+              measureDate: new Date().toISOString().split('T')[0],
+              surveyorName: '未割当',
+              remarks: `SIM読込座標点${i + 1}`,
+              stakeType: '',
+              installationCategory: '',
+              projectId: project.id
+            };
 
-          setCoordinateData(prev => [...prev, ...newCoordinates]);
-          alert(`${newCoordinates.length}件の座標データをSIMファイルから読み込みました。`);
+            try {
+              const createdSurveyPoint = await surveyPointService.createSurveyPoint(newSurveyPoint);
+              createdPoints.push(createdSurveyPoint);
+              
+              // 進捗を更新 (10% は解析、90% はデータベース保存)
+              const progress = 10 + (i + 1) / totalPoints * 90;
+              setSIMProgress(progress);
+              setSIMProgressMessage(`座標データを保存中... (${i + 1}/${totalPoints})`);
+              
+            } catch (error) {
+              console.error(`座標点 ${newSurveyPoint.pointNumber} の作成に失敗:`, error);
+            }
+          }
+          
+          setSIMProgressMessage('画面を更新中...');
+          setSIMProgress(100);
+          
+          // ローカル状態に追加
+          setSurveyPoints(prev => [...prev, ...createdPoints]);
+          
+          // 少し待ってからモーダルを閉じる
+          setTimeout(() => {
+            alert(`${createdPoints.length}件の座標データをSIMファイルから読み込み、データベースに保存しました。`);
+          }, 500);
+          
         } catch (error) {
           alert('SIMファイルの読み込みに失敗しました。ファイル形式を確認してください。');
           console.error('SIM読込エラー:', error);
+        } finally {
+          setSIMLoading(false);
+          setSIMProgress(0);
+          setSIMProgressMessage('');
         }
       };
       reader.readAsText(file);
     } else {
       // SIM書込処理
-      const simContent = generateSIMFile(coordinateData);
+      const dataToExport = actualCoordinateData;
+      const simContent = generateSIMFile(dataToExport);
       const blob = new Blob([simContent], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -657,10 +689,12 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      alert(`${coordinateData.length}件の座標データをSIMファイルに書き出しました。`);
+      alert(`${dataToExport.length}件の座標データをSIMファイルに書き出しました。`);
     }
 
-    setShowSIMModal(false);
+    if (!simLoading) {
+      setShowSIMModal(false);
+    }
   };
 
   // SIMファイル解析関数
@@ -668,22 +702,52 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     const lines = content.split('\n');
     const coordinates = [];
     
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
+    console.log('🔍 SIM解析開始:', { 総行数: lines.length });
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      console.log(`🔧 行${i + 1}を解析中:`, line.substring(0, 50) + (line.length > 50 ? '...' : ''));
       
-      // SIMファイル形式: 点名,X座標,Y座標,Z座標
-      const parts = trimmed.split(',');
-      if (parts.length >= 4) {
-        coordinates.push({
-          pointName: parts[0].trim(),
-          x: parseFloat(parts[1]),
-          y: parseFloat(parts[2]),
-          z: parseFloat(parts[3])
-        });
+      if (!line || line.startsWith('#') || line.startsWith('G00') || line.startsWith('Z00') || line.startsWith('A00') || line.startsWith('A99')) {
+        console.log('  ⏭️ スキップ: ヘッダーまたは空行');
+        continue;
+      }
+      
+      // SIMA形式のA01行を解析: A01,番号,点名,X座標,Y座標,Z座標,
+      if (line.startsWith('A01,')) {
+        console.log('  📍 A01行を発見:', line);
+        
+        const parts = line.split(',');
+        console.log('  🔧 分割結果:', parts);
+        
+        if (parts.length >= 6) {
+          const pointNumber = parts[1]?.trim();
+          const pointName = parts[2]?.trim();
+          const x = parseFloat(parts[3]);
+          const y = parseFloat(parts[4]);
+          const z = parseFloat(parts[5]);
+          
+          if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+            const coord = {
+              pointName: pointName || `点${pointNumber}`,
+              x: x,
+              y: y,
+              z: z
+            };
+            coordinates.push(coord);
+            console.log('  ✅ 座標を追加:', coord);
+          } else {
+            console.log('  ❌ 無効な座標値:', { x, y, z });
+          }
+        } else {
+          console.log('  ❌ 不正な形式: パーツ数が不足', parts.length);
+        }
+      } else {
+        console.log('  ⏭️ スキップ: A01行以外');
       }
     }
     
+    console.log('✅ SIM解析完了:', { 解析済み座標数: coordinates.length });
     return coordinates;
   };
 
@@ -1407,7 +1471,12 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
               </Title>
               <ActionIcon
                 variant="subtle"
-                onClick={() => setShowSIMModal(false)}
+                onClick={() => {
+                  if (!simLoading) {
+                    setShowSIMModal(false);
+                  }
+                }}
+                disabled={simLoading}
               >
                 <IconX size={18} />
               </ActionIcon>
@@ -1422,12 +1491,33 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
               </Text>
               
               {simAction === 'read' && (
-                <FileInput
-                  label="SIMファイル"
-                  placeholder="ファイルを選択..."
-                  accept=".sim,.txt"
-                  onChange={handleSIMProcess}
-                />
+                <>
+                  <FileInput
+                    label="SIMファイル"
+                    placeholder="ファイルを選択..."
+                    accept=".sim,.txt"
+                    onChange={handleSIMProcess}
+                    disabled={simLoading}
+                  />
+                  
+                  {simLoading && (
+                    <Stack gap="sm">
+                      <Text size="sm" fw={600} c="blue">
+                        {simProgressMessage}
+                      </Text>
+                      <Progress 
+                        value={simProgress} 
+                        size="lg" 
+                        color="blue" 
+                        striped 
+                        animated
+                      />
+                      <Text size="xs" c="dimmed" ta="center">
+                        {Math.round(simProgress)}% 完了
+                      </Text>
+                    </Stack>
+                  )}
+                </>
               )}
               
               {simAction === 'write' && (

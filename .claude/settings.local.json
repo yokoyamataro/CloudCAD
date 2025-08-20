@@ -9,6 +9,7 @@
       "Bash(ls:*)",
       "Bash(npm install:*)",
       "Bash(git push:*)",
+      "Bash(git add:*)",
       "Bash(git add:*)"
     ],
     "deny": []

@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -33,6 +33,7 @@ model Project {
   updatedAt        DateTime        @updatedAt
   drawings         Drawing[]
   landParcels      LandParcel[]
+  landowners       Landowner[]
   layers           Layer[]
   users            ProjectUser[]
   surveyPoints     SurveyPoint[]
@@ -108,11 +109,12 @@ model SurveyPoint {
   id                   String    @id @default(cuid())
   pointNumber          String
   pointType            String
-  coordinates          String
-  elevation            Float?
+  x                    Float     // X座標
+  y                    Float     // Y座標
+  elevation            Float?    // Z座標（標高）
   accuracy             String?
   measureMethod        String?
-  measureDate          DateTime?
+  measureDate          DateTime? @db.Date
   surveyorName         String?
   remarks              String?
   stakeType            String?   // 杭種 (木杭・金属鋲・金属標・石標・プラスチック杭・コンクリート杭・マーキング・刻印)
@@ -125,22 +127,43 @@ model SurveyPoint {
   project              Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, pointNumber])
+  @@index([x, y])  // 座標検索用インデックス
+}
+
+model Landowner {
+  id          String   @id @default(cuid())
+  name        String   // 地権者名
+  address     String?  // 住所
+  phoneNumber String?  // 電話番号
+  email       String?  // メールアドレス
+  birthDate   DateTime? @db.Date // 生年月日
+  idNumber    String?  // 身分証明書番号等
+  remarks     String?  // 備考
+  projectId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  landParcels LandParcel[] // 所有する土地の関連
+
+  @@unique([projectId, name])
 }
 
 model LandParcel {
-  id              String   @id @default(cuid())
-  parcelNumber    String   // 地番
-  address         String?  // 所在地
-  area            Float?   // 面積（㎡）
-  landUse         String?  // 地目
-  owner           String?  // 所有者
-  geometry        String?  // WKT形式のPolygon
-  coordinatePoints String? // 構成座標点のIDリスト（JSON配列）
-  registrationDate DateTime?
+  id              String     @id @default(cuid())
+  parcelNumber    String     // 地番
+  address         String?    // 所在地
+  area            Float?     // 面積（㎡）
+  landUse         String?    // 地目
+  owner           String?    // 所有者（廃止予定）
+  landOwnerId     String?    // 地権者ID
+  geometry        String?    // WKT形式のPolygon
+  coordinatePoints String?   // 構成座標点のIDリスト（JSON配列）
+  registrationDate DateTime? @db.Date
   remarks          String?
   projectId        String
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+  landowner        Landowner? @relation(fields: [landOwnerId], references: [id])
   project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, parcelNumber])

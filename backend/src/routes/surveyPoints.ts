@@ -3,10 +3,18 @@ import { prisma, logger } from '../index';
 
 const router = express.Router();
 
-// プロジェクトの測量点一覧取得
+// プロジェクトの測量点一覧取得（ページネーション対応）
 router.get('/project/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50; // デフォルト50件
+    const offset = (page - 1) * limit;
+    
+    // 総数取得
+    const totalCount = await prisma.surveyPoint.count({
+      where: { projectId }
+    });
     
     const surveyPoints = await prisma.surveyPoint.findMany({
       where: { projectId },
@@ -15,11 +23,38 @@ router.get('/project/:projectId', async (req, res) => {
           select: { id: true, name: true, email: true }
         }
       },
-      orderBy: { pointNumber: 'asc' }
+      orderBy: { pointNumber: 'asc' },
+      skip: offset,
+      take: limit
     });
     
-    logger.info('Survey points retrieved', { projectId, count: surveyPoints.length });
-    res.json(surveyPoints);
+    const totalPages = Math.ceil(totalCount / limit);
+    
+    logger.info('Survey points retrieved', { 
+      projectId, 
+      count: surveyPoints.length, 
+      page, 
+      totalCount, 
+      totalPages 
+    });
+    
+    // 日付フォーマット処理
+    const formattedSurveyPoints = surveyPoints.map(point => ({
+      ...point,
+      measureDate: point.measureDate ? point.measureDate.toISOString().split('T')[0] : null
+    }));
+    
+    res.json({
+      data: formattedSurveyPoints,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    });
   } catch (error) {
     logger.error('Error retrieving survey points', error);
     res.status(500).json({ error: 'Failed to retrieve survey points' });
@@ -47,8 +82,14 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Survey point not found' });
     }
     
+    // 日付フォーマット処理
+    const formattedSurveyPoint = {
+      ...surveyPoint,
+      measureDate: surveyPoint.measureDate ? surveyPoint.measureDate.toISOString().split('T')[0] : null
+    };
+    
     logger.info('Survey point retrieved', { id });
-    res.json(surveyPoint);
+    res.json(formattedSurveyPoint);
   } catch (error) {
     logger.error('Error retrieving survey point', error);
     res.status(500).json({ error: 'Failed to retrieve survey point' });
@@ -61,7 +102,8 @@ router.post('/', async (req, res) => {
     const {
       pointNumber,
       pointType,
-      coordinates,
+      x,
+      y,
       elevation,
       accuracy,
       measureMethod,
@@ -72,9 +114,9 @@ router.post('/', async (req, res) => {
     } = req.body;
     const userId = (req as any).user?.id;
     
-    if (!pointNumber || !pointType || !coordinates || !projectId) {
+    if (!pointNumber || !pointType || x === undefined || y === undefined || !projectId) {
       return res.status(400).json({ 
-        error: 'Missing required fields: pointNumber, pointType, coordinates, projectId' 
+        error: 'Missing required fields: pointNumber, pointType, x, y, projectId' 
       });
     }
     
@@ -98,7 +140,8 @@ router.post('/', async (req, res) => {
       data: {
         pointNumber,
         pointType,
-        coordinates,
+        x,
+        y,
         elevation,
         accuracy,
         measureMethod,
@@ -115,8 +158,14 @@ router.post('/', async (req, res) => {
       }
     });
     
+    // 日付フォーマット処理
+    const formattedSurveyPoint = {
+      ...surveyPoint,
+      measureDate: surveyPoint.measureDate ? surveyPoint.measureDate.toISOString().split('T')[0] : null
+    };
+    
     logger.info('Survey point created', { id: surveyPoint.id, pointNumber });
-    res.status(201).json(surveyPoint);
+    res.status(201).json(formattedSurveyPoint);
   } catch (error) {
     logger.error('Error creating survey point', error);
     res.status(500).json({ error: 'Failed to create survey point' });
@@ -130,7 +179,8 @@ router.put('/:id', async (req, res) => {
     const {
       pointNumber,
       pointType,
-      coordinates,
+      x,
+      y,
       elevation,
       accuracy,
       measureMethod,
@@ -171,7 +221,8 @@ router.put('/:id', async (req, res) => {
       data: {
         ...(pointNumber && { pointNumber }),
         ...(pointType && { pointType }),
-        ...(coordinates && { coordinates }),
+        ...(x !== undefined && { x }),
+        ...(y !== undefined && { y }),
         ...(elevation !== undefined && { elevation }),
         ...(accuracy && { accuracy }),
         ...(measureMethod && { measureMethod }),
@@ -186,8 +237,14 @@ router.put('/:id', async (req, res) => {
       }
     });
     
+    // 日付フォーマット処理
+    const formattedSurveyPoint = {
+      ...surveyPoint,
+      measureDate: surveyPoint.measureDate ? surveyPoint.measureDate.toISOString().split('T')[0] : null
+    };
+    
     logger.info('Survey point updated', { id });
-    res.json(surveyPoint);
+    res.json(formattedSurveyPoint);
   } catch (error) {
     logger.error('Error updating survey point', error);
     res.status(500).json({ error: 'Failed to update survey point' });
@@ -240,8 +297,7 @@ router.post('/bulk', async (req, res) => {
     }));
     
     const result = await prisma.surveyPoint.createMany({
-      data: pointsData,
-      skipDuplicates: true
+      data: pointsData
     });
     
     logger.info('Survey points bulk created', { 

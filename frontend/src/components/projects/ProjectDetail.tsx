@@ -436,7 +436,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   };
 
   return (
-    <>
+    <div>
       {/* カスタムプロジェクト編集モーダル */}
       {showEditModal && (
         <div
@@ -1423,38 +1423,36 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         </div>
       )}
 
-        </Container>
-        </div>
-      {/* 右側のビューワー */}
-      <CoordinateLotViewer 
-        project={project}
-        coordinates={coordinateData.map(coord => ({
-          id: coord.id,
-          pointName: coord.pointName,
-          x: coord.x,
-          y: coord.y,
-          z: coord.z,
-          type: coord.type as 'benchmark' | 'control_point' | 'boundary_point',
-          visible: true
-        }))}
-        lots={lotData.map(lot => ({
-          id: lot.id,
-          lotNumber: lot.lotNumber,
-          landCategory: lot.landCategory,
-          area: lot.area,
-          coordinates: lot.coordinates,
-          visible: true
-        }))}
-        onCoordinateClick={(coord) => {
-          console.log('座標点クリック:', coord.pointName);
-        }}
-        onLotClick={(lot) => {
-          console.log('地番クリック:', lot.lotNumber);
-        }}
-        onAddCoordinate={handleAddCoordinate}
-      />
+        {/* 右側のビューワー */}
+        <CoordinateLotViewer 
+          project={project}
+          coordinates={coordinateData.map(coord => ({
+            id: coord.id,
+            pointName: coord.pointName,
+            x: coord.x,
+            y: coord.y,
+            z: coord.z,
+            type: coord.type as 'benchmark' | 'control_point' | 'boundary_point',
+            visible: true
+          }))}
+          lots={lotData.map(lot => ({
+            id: lot.id,
+            lotNumber: lot.lotNumber,
+            landCategory: lot.landCategory,
+            area: lot.area,
+            coordinates: lot.coordinates,
+            visible: true
+          }))}
+          onCoordinateClick={(coord) => {
+            console.log('座標点クリック:', coord.pointName);
+          }}
+          onLotClick={(lot) => {
+            console.log('地番クリック:', lot.lotNumber);
+          }}
+          onAddCoordinate={handleAddCoordinate}
+        />
+      </div>
     </div>
-    </>
   );
 };
 

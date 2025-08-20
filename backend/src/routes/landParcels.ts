@@ -232,8 +232,7 @@ router.post('/bulk', async (req, res) => {
     }));
     
     const result = await prisma.landParcel.createMany({
-      data: parcelsData,
-      skipDuplicates: true
+      data: parcelsData
     });
     
     logger.info('Land parcels bulk created', { 
@@ -359,7 +358,8 @@ router.get('/:id/coordinate-points', async (req, res) => {
         id: true,
         pointNumber: true,
         pointType: true,
-        coordinates: true,
+        x: true,
+        y: true,
         elevation: true
       }
     });

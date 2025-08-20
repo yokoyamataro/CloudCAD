@@ -15,6 +15,7 @@ import memberRoutes from './routes/members';
 import elementRoutes from './routes/elements';
 import surveyPointRoutes from './routes/surveyPoints';
 import landParcelRoutes from './routes/landParcels';
+import landownerRoutes from './routes/landowners';
 import projectOptionRoutes from './routes/project-options';
 // import taskRoutes from './routes/tasks';
 
@@ -132,8 +133,16 @@ app.use('/api/projects', authenticateToken, projectRoutes);
 app.use('/api/drawings', authenticateToken, drawingRoutes);
 app.use('/api/sxf', authenticateToken, sxfRoutes);
 app.use('/api/elements', authenticateToken, elementRoutes);
-app.use('/api/survey-points', authenticateToken, surveyPointRoutes);
-app.use('/api/land-parcels', authenticateToken, landParcelRoutes);
+// 開発環境では認証を無効化（NODE_ENVが設定されていない場合も開発環境とみなす）
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/survey-points', surveyPointRoutes);
+  app.use('/api/land-parcels', landParcelRoutes);
+  app.use('/api/projects', landownerRoutes);
+} else {
+  app.use('/api/survey-points', authenticateToken, surveyPointRoutes);
+  app.use('/api/land-parcels', landParcelRoutes);
+  app.use('/api/projects', authenticateToken, landownerRoutes);
+}
 // テスト用: 認証なしでアクセス可能なエンドポイント
 app.use('/api/elements-test', elementRoutes);
 app.use('/api', authenticateToken, memberRoutes);

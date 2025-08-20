@@ -6,13 +6,16 @@ export interface SurveyPoint {
   id: string;
   pointNumber: string;
   pointType: string;
-  coordinates: string; // WKT形式
-  elevation?: number;
+  x: number; // X座標
+  y: number; // Y座標
+  elevation?: number; // Z座標（標高）
   accuracy?: string;
   measureMethod?: string;
   measureDate?: string;
   surveyorName?: string;
   remarks?: string;
+  stakeType?: string; // 杭種
+  installationCategory?: string; // 設置区分
   projectId: string;
   createdBy?: string;
   createdAt: string;
@@ -24,29 +27,49 @@ export interface SurveyPoint {
   };
 }
 
+export interface PaginationInfo {
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
+export interface SurveyPointsResponse {
+  data: SurveyPoint[];
+  pagination: PaginationInfo;
+}
+
 export interface CreateSurveyPointData {
   pointNumber: string;
   pointType: string;
-  coordinates: string;
+  x: number;
+  y: number;
   elevation?: number;
   accuracy?: string;
   measureMethod?: string;
   measureDate?: string;
   surveyorName?: string;
   remarks?: string;
+  stakeType?: string;
+  installationCategory?: string;
   projectId: string;
 }
 
 export interface UpdateSurveyPointData {
   pointNumber?: string;
   pointType?: string;
-  coordinates?: string;
+  x?: number;
+  y?: number;
   elevation?: number;
   accuracy?: string;
   measureMethod?: string;
   measureDate?: string;
   surveyorName?: string;
   remarks?: string;
+  stakeType?: string;
+  installationCategory?: string;
 }
 
 class SurveyPointService {
@@ -73,9 +96,21 @@ class SurveyPointService {
     return response.json();
   }
 
-  // プロジェクトの測量点一覧取得
-  async getSurveyPointsByProject(projectId: string): Promise<SurveyPoint[]> {
-    return this.request<SurveyPoint[]>(`/survey-points/project/${projectId}`);
+  // プロジェクトの測量点一覧取得（ページネーション対応）
+  async getSurveyPointsByProject(
+    projectId: string, 
+    page: number = 1, 
+    limit: number = 50
+  ): Promise<SurveyPointsResponse> {
+    return this.request<SurveyPointsResponse>(
+      `/survey-points/project/${projectId}?page=${page}&limit=${limit}`
+    );
+  }
+
+  // 全件取得（後方互換性のため）
+  async getAllSurveyPointsByProject(projectId: string): Promise<SurveyPoint[]> {
+    const response = await this.getSurveyPointsByProject(projectId, 1, 10000);
+    return response.data;
   }
 
   // 測量点の個別取得
@@ -183,3 +218,4 @@ class SurveyPointService {
 }
 
 export const surveyPointService = new SurveyPointService();
+export default SurveyPointService;
