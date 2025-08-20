@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -31,7 +31,8 @@ import {
   IconTrash,
   IconDownload,
   IconUpload,
-  IconX
+  IconX,
+  IconRefresh
 } from '@tabler/icons-react';
 import type { Project } from '../../types/project';
 import { CoordinateLotViewer } from '../viewer/CoordinateLotViewer';
@@ -46,6 +47,8 @@ import {
   type LotData as MockLotData,
   type LandownerData as MockLandownerData
 } from '../../utils/mockDataGenerator';
+import { surveyPointService, type SurveyPoint } from '../../services/surveyPointService';
+import { landParcelService, type LandParcel } from '../../services/landParcelService';
 
 interface CoordinateEditorProps {
   project: Project;
@@ -61,7 +64,13 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   console.log('CoordinateEditor loaded with project:', project?.name, 'initialTab:', initialTab);
   const [activeTab, setActiveTab] = useState<string | null>(initialTab);
 
-  // 座標データ管理（共通のデータジェネレーターを使用）
+  // API データ管理
+  const [surveyPoints, setSurveyPoints] = useState<SurveyPoint[]>([]);
+  const [landParcels, setLandParcels] = useState<LandParcel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // 座標データ管理（フォールバック用：モックデータ）
   const [coordinateData, setCoordinateData] = useState(() => generateSimpleCoordinateData());
   const [lotData, setLotData] = useState(() => generateLotData());
   const [landownerData, setLandownerData] = useState(() => generateLandownerData());
@@ -84,22 +93,160 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     status: [] as string[]
   });
   
-  // バッジの色を取得する関数
-  const getTypeBadgeColor = (type: string) => {
-    switch (type) {
-      case 'benchmark': return 'blue';
-      case 'control_point': return 'green';
-      case 'boundary_point': return 'orange';
-      default: return 'gray';
+  // データロード処理
+  useEffect(() => {
+    const loadData = async () => {
+      if (!project?.id) return;
+      
+      try {
+        setLoading(true);
+        setError(null);
+        
+        console.log('🔄 データロード開始:', { projectId: project.id });
+        
+        // 座標点データと地番データを並行して取得
+        const [surveyPointsResponse, landParcelsResponse] = await Promise.all([
+          surveyPointService.getSurveyPoints(project.id),
+          landParcelService.getLandParcels(project.id)
+        ]);
+        
+        console.log('🔍 APIレスポンス詳細:', {
+          surveyPoints: surveyPointsResponse.slice(0, 2), // 最初の2件だけログ出力
+          surveyPointsCount: surveyPointsResponse.length,
+          landParcelsCount: landParcelsResponse.length
+        });
+        
+        setSurveyPoints(surveyPointsResponse);
+        setLandParcels(landParcelsResponse);
+        
+        console.log('✅ データロード完了:', {
+          surveyPoints: surveyPointsResponse.length,
+          landParcels: landParcelsResponse.length
+        });
+      } catch (err) {
+        console.error('❌ データロードエラー:', err);
+        const errorMessage = err instanceof Error ? err.message : 'データの読み込みに失敗しました';
+        setError(errorMessage);
+        // エラー時はモックデータを使用
+        console.log('フォールバック: モックデータを使用します');
+        
+        // ユーザーへの通知（将来的にはトーストなどで）
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`API接続エラー: ${errorMessage}. モックデータで続行します。`);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [project?.id]);
+
+  // 手動データ再読み込み関数
+  const reloadData = useCallback(async () => {
+    console.log('🔄 手動データ再読み込み開始');
+    if (!project?.id) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [surveyPointsResponse, landParcelsResponse] = await Promise.all([
+        surveyPointService.getSurveyPoints(project.id),
+        landParcelService.getLandParcels(project.id)
+      ]);
+      
+      setSurveyPoints(surveyPointsResponse);
+      setLandParcels(landParcelsResponse);
+      
+      console.log('✅ 手動データ再読み込み完了:', {
+        surveyPoints: surveyPointsResponse.length,
+        landParcels: landParcelsResponse.length
+      });
+    } catch (err) {
+      console.error('❌ 手動データ再読み込みエラー:', err);
+      setError(err instanceof Error ? err.message : 'データの再読み込みに失敗しました');
+    } finally {
+      setLoading(false);
     }
-  };
-  
+  }, [project?.id]);
+
+  // 種類ラベルの正規化関数
   const getTypeLabel = (type: string) => {
-    switch (type) {
+    switch (type.toLowerCase()) {
       case 'benchmark': return '基準点';
       case 'control_point': return '制御点';
       case 'boundary_point': return '境界点';
+      case 'control': return '制御点';  // 短縮形も対応
+      case 'boundary': return '境界点'; // 短縮形も対応
+      case '制御点': return '制御点';    // 既に日本語の場合
+      case '境界点': return '境界点';    // 既に日本語の場合
+      case '基準点': return '基準点';    // 既に日本語の場合
       default: return type;
+    }
+  };
+
+  // SurveyPoint から MockCoordinatePoint への変換
+  const convertSurveyPointToCoordinatePoint = (surveyPoint: SurveyPoint): MockCoordinatePoint => {
+    console.log('🔧 座標変換中:', {
+      pointNumber: surveyPoint.pointNumber,
+      originalCoordinates: surveyPoint.coordinates,
+      parseResult: surveyPointService.parseCoordinates(surveyPoint.coordinates)
+    });
+    
+    const coords = surveyPointService.parseCoordinates(surveyPoint.coordinates);
+    const result = {
+      id: surveyPoint.id,
+      pointName: surveyPoint.pointNumber,
+      type: getTypeLabel(surveyPoint.pointType), // 既存データを日本語に正規化
+      x: coords.x,
+      y: coords.y,
+      z: surveyPoint.elevation || 0,
+      description: surveyPoint.remarks || '',
+      surveyDate: surveyPoint.measureDate || new Date().toISOString().split('T')[0],
+      assignee: surveyPoint.surveyorName || '未割当',
+      status: '測量済み', // デフォルトステータス
+      stakeType: surveyPoint.stakeType,
+      installationCategory: surveyPoint.installationCategory
+    };
+    
+    console.log('✅ 変換結果:', result);
+    return result;
+  };
+
+  // 実際に使用するデータ（API優先、フォールバックでモック）
+  const actualCoordinateData = useMemo(() => {
+    console.log('🔍 actualCoordinateData計算中:', {
+      loading,
+      surveyPointsLength: surveyPoints.length,
+      firstSurveyPoint: surveyPoints[0],
+      coordinateDataLength: coordinateData.length
+    });
+    
+    if (loading) {
+      console.log('⏳ ローディング中のためモックデータを使用');
+      return coordinateData;
+    }
+    
+    if (surveyPoints.length > 0) {
+      console.log('✅ APIデータを使用:', surveyPoints.length, '件');
+      const converted = surveyPoints.map(convertSurveyPointToCoordinatePoint);
+      console.log('🔧 変換後の最初のデータ:', converted[0]);
+      return converted;
+    } else {
+      console.log('⚠️ APIデータが空のためモックデータにフォールバック');
+      return coordinateData;
+    }
+  }, [loading, surveyPoints, coordinateData]);
+
+  // バッジの色を取得する関数
+  const getTypeBadgeColor = (type: string) => {
+    const normalizedType = getTypeLabel(type); // 既存データ互換性のため正規化
+    switch (normalizedType) {
+      case '基準点': return 'blue';
+      case '制御点': return 'green';
+      case '境界点': return 'orange';
+      default: return 'gray';
     }
   };
   
@@ -115,28 +262,30 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   };
   
   // フィルター適用関数（複数選択対応）
-  const filteredCoordinateData = coordinateData.filter(coord => {
-    const searchMatch = !filters.search || 
-      coord.pointName.toLowerCase().includes(filters.search.toLowerCase()) ||
-      coord.description?.toLowerCase().includes(filters.search.toLowerCase()) ||
-      coord.assignee?.toLowerCase().includes(filters.search.toLowerCase());
-    
-    const typeMatch = filters.type.length === 0 || filters.type.includes(coord.type);
-    const assigneeMatch = filters.assignee.length === 0 || filters.assignee.includes(coord.assignee);
-    const statusMatch = filters.status.length === 0 || filters.status.includes(coord.status);
-    
-    return searchMatch && typeMatch && assigneeMatch && statusMatch;
-  });
+  const filteredCoordinateData = useMemo(() => {
+    return actualCoordinateData.filter(coord => {
+      const searchMatch = !filters.search || 
+        coord.pointName.toLowerCase().includes(filters.search.toLowerCase()) ||
+        coord.description?.toLowerCase().includes(filters.search.toLowerCase()) ||
+        coord.assignee?.toLowerCase().includes(filters.search.toLowerCase());
+      
+      const typeMatch = filters.type.length === 0 || filters.type.includes(coord.type);
+      const assigneeMatch = filters.assignee.length === 0 || filters.assignee.includes(coord.assignee);
+      const statusMatch = filters.status.length === 0 || filters.status.includes(coord.status);
+      
+      return searchMatch && typeMatch && assigneeMatch && statusMatch;
+    });
+  }, [actualCoordinateData, filters]);
   
   // フィルターリセット関数
-  const resetFilters = () => {
+  const resetFilters = useCallback(() => {
     setFilters({
       search: '',
       type: [],
       assignee: [],
       status: []
     });
-  };
+  }, []);
   
   // アクティブフィルター数（複数選択対応）
   const activeFilterCount = [
@@ -148,12 +297,12 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
   
   // ユニークな値を取得する関数
   const getUniqueAssignees = () => {
-    const assignees = [...new Set(coordinateData.map(coord => coord.assignee).filter(Boolean))];
+    const assignees = [...new Set(actualCoordinateData.map(coord => coord.assignee).filter(Boolean))];
     return assignees.sort();
   };
   
   const getUniqueStatuses = () => {
-    const statuses = [...new Set(coordinateData.map(coord => coord.status).filter(Boolean))];
+    const statuses = [...new Set(actualCoordinateData.map(coord => coord.status).filter(Boolean))];
     return statuses.sort();
   };
   
@@ -178,10 +327,40 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     }
   };
 
-  const handleBulkDelete = () => {
-    setCoordinateData(prev => prev.filter(coord => !selectedCoordinates.has(coord.id)));
-    setSelectedCoordinates(new Set());
-  };
+  const handleBulkDelete = useCallback(async () => {
+    if (!project?.id || selectedCoordinates.size === 0) return;
+
+    const confirmDelete = window.confirm(
+      `選択した${selectedCoordinates.size}個の座標点を削除します。この操作は取り消せません。続行しますか？`
+    );
+    
+    if (!confirmDelete) return;
+
+    try {
+      if (surveyPoints.length > 0) {
+        // API 経由で削除
+        const deletePromises = Array.from(selectedCoordinates).map(coordinateId =>
+          surveyPointService.deleteSurveyPoint(project.id!, coordinateId)
+        );
+        
+        await Promise.allSettled(deletePromises);
+        
+        // データを再読み込みして最新状態を取得
+        const updatedSurveyPoints = await surveyPointService.getSurveyPoints(project.id!);
+        setSurveyPoints(updatedSurveyPoints);
+      } else {
+        // フォールバック: モックデータから削除
+        setCoordinateData(prev => prev.filter(coord => !selectedCoordinates.has(coord.id)));
+      }
+      
+      setSelectedCoordinates(new Set());
+      console.log(`✅ ${selectedCoordinates.size}件の座標点を削除しました`);
+    } catch (error) {
+      console.error('一括削除エラー:', error);
+      const errorMessage = error instanceof Error ? error.message : '座標の削除に失敗しました';
+      setError(errorMessage);
+    }
+  }, [project?.id, selectedCoordinates, surveyPoints.length]);
 
   // 座標インライン編集関数
   const startCoordInlineEdit = (coordId: string, field: string, currentValue: string) => {
@@ -190,21 +369,92 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     setEditingCoordValue(currentValue);
   };
 
-  const saveCoordInlineEdit = () => {
-    if (editingCoordId && editingCoordField) {
-      setCoordinateData(prev => prev.map(coord => 
-        coord.id === editingCoordId 
-          ? { 
-              ...coord, 
-              [editingCoordField]: editingCoordField === 'x' || editingCoordField === 'y' || editingCoordField === 'z'
-                ? parseFloat(editingCoordValue) || 0 
-                : editingCoordValue 
-            }
-          : coord
-      ));
+  const saveCoordInlineEdit = useCallback(async () => {
+    if (!editingCoordId || !editingCoordField || !project?.id) {
+      cancelCoordInlineEdit();
+      return;
     }
+
+    try {
+      // API 経由でデータを更新
+      if (surveyPoints.length > 0) {
+        const surveyPoint = surveyPoints.find(sp => sp.id === editingCoordId);
+        if (surveyPoint) {
+          let updateData: any = { ...surveyPoint };
+          
+          switch (editingCoordField) {
+            case 'pointName':
+              updateData.pointNumber = editingCoordValue;
+              break;
+            case 'type':
+              updateData.pointType = editingCoordValue;
+              break;
+            case 'x':
+            case 'y':
+              const coords = surveyPointService.parseCoordinates(surveyPoint.coordinates);
+              if (editingCoordField === 'x') {
+                coords.x = parseFloat(editingCoordValue) || 0;
+              } else {
+                coords.y = parseFloat(editingCoordValue) || 0;
+              }
+              updateData.coordinates = surveyPointService.formatCoordinates(coords.x, coords.y);
+              break;
+            case 'z':
+              updateData.elevation = parseFloat(editingCoordValue) || 0;
+              break;
+            case 'description':
+              updateData.remarks = editingCoordValue;
+              break;
+            case 'assignee':
+              updateData.surveyorName = editingCoordValue;
+              break;
+            case 'stakeType':
+              updateData.stakeType = editingCoordValue;
+              break;
+            case 'installationCategory':
+              updateData.installationCategory = editingCoordValue;
+              break;
+            case 'surveyDate':
+              updateData.measureDate = editingCoordValue;
+              break;
+          }
+
+          // API 呼び出し
+          const updatedSurveyPoint = await surveyPointService.updateSurveyPoint(
+            project.id, 
+            editingCoordId, 
+            updateData
+          );
+          
+          // ローカル状態更新
+          setSurveyPoints(prev => prev.map(sp => 
+            sp.id === editingCoordId ? updatedSurveyPoint : sp
+          ));
+          
+          console.log(`✅ 座標点 ${surveyPoint.pointNumber} を更新しました`);
+        }
+      } else {
+        // フォールバック: モックデータを更新
+        setCoordinateData(prev => prev.map(coord => 
+          coord.id === editingCoordId 
+            ? { 
+                ...coord, 
+                [editingCoordField]: editingCoordField === 'x' || editingCoordField === 'y' || editingCoordField === 'z'
+                  ? parseFloat(editingCoordValue) || 0 
+                  : editingCoordValue 
+              }
+            : coord
+        ));
+        console.log(`✅ モックデータを更新しました (${editingCoordField})`);
+      }
+    } catch (error) {
+      console.error('座標更新エラー:', error);
+      const errorMessage = error instanceof Error ? error.message : '座標の更新に失敗しました';
+      setError(errorMessage);
+    }
+    
     cancelCoordInlineEdit();
-  };
+  }, [editingCoordId, editingCoordField, editingCoordValue, project?.id, surveyPoints]);
 
   const cancelCoordInlineEdit = () => {
     setEditingCoordId(null);
@@ -212,9 +462,87 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
     setEditingCoordValue('');
   };
 
+  // 編集可能フィールドの順序
+  const editableFields = [
+    'pointName', 'type', 'x', 'y', 'z', 
+    'stakeType', 'installationCategory', 'assignee', 'status', 'description', 'surveyDate'
+  ];
+
+  // 次のフィールドに移動
+  const moveToNextField = () => {
+    if (!editingCoordId || !editingCoordField) return;
+    
+    const currentIndex = editableFields.indexOf(editingCoordField);
+    const nextIndex = (currentIndex + 1) % editableFields.length;
+    const nextField = editableFields[nextIndex];
+    
+    // 現在の編集を保存
+    saveCoordInlineEdit();
+    
+    // 次のフィールドの編集を開始
+    setTimeout(() => {
+      const coord = actualCoordinateData.find(c => c.id === editingCoordId);
+      if (coord) {
+        let nextValue = '';
+        switch (nextField) {
+          case 'pointName':
+            nextValue = coord.pointName;
+            break;
+          case 'type':
+            nextValue = coord.type;
+            break;
+          case 'x':
+            nextValue = coord.x.toString();
+            break;
+          case 'y':
+            nextValue = coord.y.toString();
+            break;
+          case 'z':
+            nextValue = coord.z.toString();
+            break;
+          case 'stakeType':
+            nextValue = coord.stakeType || '';
+            break;
+          case 'installationCategory':
+            nextValue = coord.installationCategory || '';
+            break;
+          case 'assignee':
+            nextValue = coord.assignee;
+            break;
+          case 'status':
+            nextValue = coord.status;
+            break;
+          case 'description':
+            nextValue = coord.description || '';
+            break;
+          case 'surveyDate':
+            nextValue = coord.surveyDate;
+            break;
+        }
+        startCoordInlineEdit(editingCoordId, nextField, nextValue);
+      }
+    }, 50);
+  };
+
   const handleCoordKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       saveCoordInlineEdit();
+    } else if (e.key === 'Escape') {
+      cancelCoordInlineEdit();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      moveToNextField();
+    }
+  };
+
+  // Selectコンポーネント用のキーハンドラー
+  const handleSelectKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      // Selectの場合は、現在の値を保存してから次に移動
+      setTimeout(() => {
+        moveToNextField();
+      }, 10);
     } else if (e.key === 'Escape') {
       cancelCoordInlineEdit();
     }
@@ -350,6 +678,22 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                   <Text size="sm" c="dimmed">{project.name} - 測量基準点・境界点・地番の統合管理</Text>
                 </div>
               </Group>
+              <Group gap="xs">
+                <Button
+                  variant="light"
+                  size="sm"
+                  onClick={reloadData}
+                  leftSection={<IconRefresh size={16} />}
+                  loading={loading}
+                >
+                  データ更新
+                </Button>
+                {error && (
+                  <Text size="sm" c="red">
+                    {error}
+                  </Text>
+                )}
+              </Group>
             </Group>
           </Paper>
 
@@ -371,10 +715,10 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
               <Paper shadow="sm" p={20} withBorder>
                 <Stack gap="md">
                   <div>
-                    <Text size="sm" c="dimmed">測量基準点・境界点の座標データを管理します - 各項目をクリックして直接編集できます</Text>
+                    <Text size="sm" c="dimmed">測量基準点・境界点の座標データを管理します - 各項目をクリックして直接編集、Tabキーで次の列に移動できます</Text>
                     {activeFilterCount > 0 && (
                       <Text size="sm" c="orange" fw={600}>
-                        {activeFilterCount}個のフィルター適用中 ({filteredCoordinateData.length}/{coordinateData.length}件表示)
+                        {activeFilterCount}個のフィルター適用中 ({filteredCoordinateData.length}/{actualCoordinateData.length}件表示)
                       </Text>
                     )}
                   </div>
@@ -395,9 +739,9 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                           value={filters.type}
                           onChange={(value) => setFilters(prev => ({ ...prev, type: value }))}
                           data={[
-                            { value: 'benchmark', label: '基準点' },
-                            { value: 'control_point', label: '制御点' },
-                            { value: 'boundary_point', label: '境界点' }
+                            { value: '基準点', label: '基準点' },
+                            { value: '制御点', label: '制御点' },
+                            { value: '境界点', label: '境界点' }
                           ]}
                           clearable
                           searchable
@@ -469,6 +813,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                           <Table.Th>設置区分</Table.Th>
                           <Table.Th>担当者</Table.Th>
                           <Table.Th>状態</Table.Th>
+                          <Table.Th>備考</Table.Th>
                           <Table.Th>測量日</Table.Th>
                         </Table.Tr>
                       </Table.Thead>
@@ -482,46 +827,24 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                             />
                           </Table.Td>
                           <Table.Td>
-                            <div>
-                              {editingCoordId === coord.id && editingCoordField === 'pointName' ? (
-                                <TextInput
-                                  value={editingCoordValue}
-                                  onChange={(e) => setEditingCoordValue(e.target.value)}
-                                  onKeyDown={handleCoordKeyPress}
-                                  onBlur={saveCoordInlineEdit}
-                                  size="xs"
-                                  autoFocus
-                                  style={{ marginBottom: 4 }}
-                                />
-                              ) : (
-                                <Text 
-                                  fw={600}
-                                  style={{ cursor: 'pointer' }}
-                                  onClick={() => startCoordInlineEdit(coord.id, 'pointName', coord.pointName)}
-                                >
-                                  {coord.pointName}
-                                </Text>
-                              )}
-                              {editingCoordId === coord.id && editingCoordField === 'description' ? (
-                                <TextInput
-                                  value={editingCoordValue}
-                                  onChange={(e) => setEditingCoordValue(e.target.value)}
-                                  onKeyDown={handleCoordKeyPress}
-                                  onBlur={saveCoordInlineEdit}
-                                  size="xs"
-                                  autoFocus
-                                />
-                              ) : (
-                                <Text 
-                                  size="xs" 
-                                  c="dimmed"
-                                  style={{ cursor: 'pointer' }}
-                                  onClick={() => startCoordInlineEdit(coord.id, 'description', coord.description || '')}
-                                >
-                                  {coord.description}
-                                </Text>
-                              )}
-                            </div>
+                            {editingCoordId === coord.id && editingCoordField === 'pointName' ? (
+                              <TextInput
+                                value={editingCoordValue}
+                                onChange={(e) => setEditingCoordValue(e.target.value)}
+                                onKeyDown={handleCoordKeyPress}
+                                onBlur={saveCoordInlineEdit}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Text 
+                                fw={600}
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'pointName', coord.pointName)}
+                              >
+                                {coord.pointName}
+                              </Text>
+                            )}
                           </Table.Td>
                           <Table.Td>
                             {editingCoordId === coord.id && editingCoordField === 'type' ? (
@@ -531,10 +854,11 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                                   setEditingCoordValue(value || '');
                                   setTimeout(saveCoordInlineEdit, 100);
                                 }}
+                                onKeyDown={handleSelectKeyDown}
                                 data={[
-                                  { value: 'benchmark', label: '基準点' },
-                                  { value: 'control_point', label: '制御点' },
-                                  { value: 'boundary_point', label: '境界点' }
+                                  { value: '基準点', label: '基準点' },
+                                  { value: '制御点', label: '制御点' },
+                                  { value: '境界点', label: '境界点' }
                                 ]}
                                 size="xs"
                                 autoFocus
@@ -627,6 +951,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                                   setEditingCoordValue(value || '');
                                   setTimeout(saveCoordInlineEdit, 100);
                                 }}
+                                onKeyDown={handleSelectKeyDown}
                                 data={getDefaultStakeTypes()}
                                 size="xs"
                                 autoFocus
@@ -649,6 +974,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                                   setEditingCoordValue(value || '');
                                   setTimeout(saveCoordInlineEdit, 100);
                                 }}
+                                onKeyDown={handleSelectKeyDown}
                                 data={getDefaultInstallationCategories()}
                                 size="xs"
                                 autoFocus
@@ -671,6 +997,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                                   setEditingCoordValue(value || '');
                                   setTimeout(saveCoordInlineEdit, 100);
                                 }}
+                                onKeyDown={handleSelectKeyDown}
                                 data={getUniqueAssignees()}
                                 size="xs"
                                 autoFocus
@@ -694,6 +1021,7 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                                   setEditingCoordValue(value || '');
                                   setTimeout(saveCoordInlineEdit, 100);
                                 }}
+                                onKeyDown={handleSelectKeyDown}
                                 data={getUniqueStatuses()}
                                 size="xs"
                                 autoFocus
@@ -708,6 +1036,27 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                               >
                                 {coord.status}
                               </Badge>
+                            )}
+                          </Table.Td>
+                          <Table.Td>
+                            {editingCoordId === coord.id && editingCoordField === 'description' ? (
+                              <TextInput
+                                value={editingCoordValue}
+                                onChange={(e) => setEditingCoordValue(e.target.value)}
+                                onKeyDown={handleCoordKeyPress}
+                                onBlur={saveCoordInlineEdit}
+                                size="xs"
+                                autoFocus
+                              />
+                            ) : (
+                              <Text 
+                                size="sm"
+                                c="dimmed"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => startCoordInlineEdit(coord.id, 'description', coord.description || '')}
+                              >
+                                {coord.description || '-'}
+                              </Text>
                             )}
                           </Table.Td>
                           <Table.Td>
@@ -741,8 +1090,8 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
                     <div>
                       <Text size="sm" c="dimmed">
                         {activeFilterCount > 0 
-                          ? `${filteredCoordinateData.length}/${coordinateData.length} 件の座標データを表示中` 
-                          : `${coordinateData.length} 件の座標データが登録されています`
+                          ? `${filteredCoordinateData.length}/${actualCoordinateData.length} 件の座標データを表示中` 
+                          : `${actualCoordinateData.length} 件の座標データが登録されています`
                         }
                       </Text>
                       {selectedCoordinates.size > 0 && (
@@ -944,13 +1293,13 @@ export const CoordinateEditor: React.FC<CoordinateEditorProps> = ({
       {/* 右側のビューワー */}
       <CoordinateLotViewer 
         project={project}
-        coordinates={coordinateData.map(coord => ({
+        coordinates={actualCoordinateData.map(coord => ({
           id: coord.id,
           pointName: coord.pointName,
           x: coord.x,
           y: coord.y,
           z: coord.z,
-          type: coord.type as 'benchmark' | 'control_point' | 'boundary_point',
+          type: coord.type as '基準点' | '制御点' | '境界点',
           visible: true
         }))}
         lots={lotData.map(lot => ({
